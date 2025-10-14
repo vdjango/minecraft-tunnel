@@ -1,0 +1,114 @@
+tunnel-server/
+├── bin/                    # 可执行脚本和工具
+│   ├── start-server        # 启动服务器主程序
+│   ├── stop-server         # 停止服务器
+│   ├── health-check        # 健康检查脚本
+│   ├── deploy-node         # 节点部署脚本
+│   └── monitor             # 监控脚本
+├── config/                 # 配置文件目录
+│   ├── server.conf         # 服务器主配置
+│   ├── load-balancer.conf  # 负载均衡配置
+│   ├── nodes.conf          # 节点配置（初始节点列表）
+│   ├── security.conf       # 安全相关配置
+│   ├── monitoring.conf     # 监控配置
+│   └── logging.conf        # 日志配置
+├── docs/                   # 文档目录
+│   ├── deployment.md       # 部署文档
+│   ├── api.md              # API接口文档
+│   ├── protocol.md         # 协议文档
+│   └── contribution.md     # 贡献指南
+├── logs/                   # 日志目录
+│   ├── access.log          # 访问日志
+│   ├── error.log           # 错误日志
+│   ├── server.log          # 服务器运行日志
+│   └── performance.log     # 性能日志
+├── src/                    # 源代码目录
+│   ├── main.py             # 主程序入口
+│   ├── common/             # 通用模块
+│   │   ├── __init__.py
+│   │   ├── constants.py    # 常量定义
+│   │   ├── exceptions.py   # 自定义异常
+│   │   ├── utils.py        # 工具函数
+│   │   └── types.py        # 类型定义
+│   ├── core/               # 核心模块
+│   │   ├── __init__.py
+│   │   ├── server.py       # 主服务器类
+│   │   ├── session.py      # 会话管理
+│   │   └── tunnel.py       # 隧道协议实现
+│   ├── discovery/          # 服务发现模块
+│   │   ├── __init__.py
+│   │   ├── registry.py     # 节点注册中心
+│   │   ├── heartbeat.py    # 心跳检测
+│   │   └── watcher.py      # 节点变化监听
+│   ├── loadbalancer/       # 负载均衡模块
+│   │   ├── __init__.py
+│   │   ├── base.py         # 负载均衡基类
+│   │   ├── strategies.py   # 各种负载均衡策略
+│   │   └── manager.py      # 负载均衡管理器
+│   ├── network/            # 网络模块
+│   │   ├── __init__.py
+│   │   ├── protocol.py     # 自定义协议
+│   │   ├── connection.py   # 连接管理
+│   │   └── packet.py       # 数据包处理
+│   ├── monitor/            # 监控模块
+│   │   ├── __init__.py
+│   │   ├── metrics.py      # 指标收集
+│   │   ├── health.py       # 健康检查
+│   │   └── reporter.py     # 监控数据上报
+│   ├── security/           # 安全模块
+│   │   ├── __init__.py
+│   │   ├── auth.py         # 认证授权
+│   │   ├── encrypt.py      # 加密解密
+│   │   └── firewall.py     # 防火墙规则
+│   ├── storage/            # 存储模块
+│   │   ├── __init__.py
+│   │   ├── redis.py        # Redis客户端（用于会话存储等）
+│   │   ├── database.py     # 数据库操作（如果需要持久化）
+│   │   └── cache.py        # 缓存管理
+│   ├── api/                # API模块
+│   │   ├── __init__.py
+│   │   ├── rest.py         # RESTful API
+│   │   ├── websocket.py    # WebSocket API
+│   │   └── handlers/       # API处理器
+│   │       ├── nodes.py
+│   │       ├── sessions.py
+│   │       └── stats.py
+│   └── cli/                # 命令行接口模块
+│       ├── __init__.py
+│       ├── commands.py     # 命令定义
+│       └── utils.py        # CLI工具函数
+├── tests/                  # 测试目录
+│   ├── unit/              # 单元测试
+│   │   ├── __init__.py
+│   │   ├── test_discovery.py
+│   │   ├── test_loadbalancer.py
+│   │   └── test_network.py
+│   ├── integration/       # 集成测试
+│   │   ├── __init__.py
+│   │   ├── test_cluster.py
+│   │   └── test_performance.py
+│   └── fixtures/          # 测试夹具
+│       ├── __init__.py
+│       ├── test_nodes.json
+│       └── test_config.yaml
+├── docker/                # Docker相关文件
+│   ├── Dockerfile         # Docker构建文件
+│   ├── docker-compose.yml # Docker编排文件
+│   └── entrypoint.sh      # Docker入口脚本
+├── deployments/           # 部署配置
+│   ├── kubernetes/        # Kubernetes部署文件
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   └── configmap.yaml
+│   └── terraform/         # Terraform基础设施代码
+│       ├── main.tf
+│       ├── variables.tf
+│       └── outputs.tf
+├── requirements.txt       # Python依赖
+├── requirements-dev.txt   # 开发环境依赖
+├── setup.py               # 安装脚本
+├── pyproject.toml         # 项目配置（Poetry等）
+├── .gitignore            # Git忽略规则
+├── LICENSE               # 许可证文件
+├── README.md             # 项目说明
+└── CHANGELOG.md          # 变更日志

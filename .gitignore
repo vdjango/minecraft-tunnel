@@ -1,0 +1,8 @@
+.minecraft
+venv
+*.pyc
+.secret
+dist*
+*.log
+__pycache__
+logs
