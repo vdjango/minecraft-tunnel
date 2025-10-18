@@ -862,7 +862,7 @@ class TunnelServer:
                         async with self.conn_lock:
                             self.control_connections[type_id] = (reader, writer)
                             # 主机端需要维持在控制端的长连接
-                            asyncio.create_task(self.heartbeat(type_id, typec))
+                            # asyncio.create_task(self.heartbeat(type_id, typec))
                             logger.info(f"[{self.worker_id}] [控制] 主机完成注册 {type_id}")
                     elif action == 'heartbeat':
                         writer.write(json.dumps({'action': 'heartbeat', 'id': type_id}).encode('utf-8'))
@@ -905,7 +905,7 @@ class TunnelServer:
                             await writer.drain()
                             logger.info(f"[{self.worker_id}] [控制] 通知客户{type_id}: 建立数据通道")
                             
-                            asyncio.create_task(self.heartbeat(type_id, typec))
+                            # asyncio.create_task(self.heartbeat(type_id, typec))
                             logger.info(f"[{self.worker_id}] [控制] 客户端{type_id}: 连接已建立")
                     elif action == "forward":
                         target_host_id = command.get('target_host_id')
