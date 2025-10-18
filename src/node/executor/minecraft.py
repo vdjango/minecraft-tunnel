@@ -254,7 +254,7 @@ class ConnectionRouterx:
                     'worker_id': worker_id,
                     'control_port': control_port,
                     'forward_port': forward_port,
-                    'host': 'localhost'  # 实际部署时可以是具体IP
+                    'host': '81.68.225.236'  # 实际部署时可以是具体IP
                 }
                 
                 writer.write(json.dumps(response).encode())
@@ -464,6 +464,7 @@ class ConnectionRouter:
                     'status': 'success',
                     'message': f'Host {host_id} registered to worker {worker_id}',
                     'worker_id': worker_id,
+                    'host': '81.68.225.236',  # 实际部署时可以是具体IP
                     'control_port': self.worker_ports[worker_id][0],
                     'forward_port': self.worker_ports[worker_id][1]
                 }
@@ -511,7 +512,7 @@ class ConnectionRouter:
                     'worker_id': worker_id,
                     'control_port': control_port,
                     'forward_port': forward_port,
-                    'host': 'localhost',  # 实际部署时可以是具体IP
+                    'host': '81.68.225.236',  # 实际部署时可以是具体IP
                     'load': self.host_affinity.get_worker_load(worker_id)
                 }
                 
