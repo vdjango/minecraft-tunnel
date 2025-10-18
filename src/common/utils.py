@@ -7,6 +7,18 @@ import socket
 import asyncio
 from typing import Dict, Any, Optional
 
+
+import logging
+import codecs
+
+
+class UTF8FileHandler(logging.FileHandler):
+    """支持 UTF-8 编码的文件处理器"""
+    
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
+        super().__init__(filename, mode, encoding, delay)
+
+
 def setup_logging(config_path: str):
     """根据配置文件设置日志"""
     if os.path.exists(config_path):
@@ -16,12 +28,18 @@ def setup_logging(config_path: str):
             logging.config.dictConfig(config)
             return
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Error loading logging config: {e}")
     
     # 默认日志配置
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            UTF8FileHandler("tunnel.log"),
+            logging.StreamHandler()
+        ]
     )
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -46,6 +64,8 @@ def get_local_ip() -> str:
         s.close()
         return ip
     except:
+        import traceback
+        traceback.print_exc()
         return "127.0.0.1"
 
 def create_task_safe(coro) -> asyncio.Task:
@@ -61,6 +81,8 @@ def _handle_task_exception(task: asyncio.Task):
     except asyncio.CancelledError:
         pass  # 任务被取消是正常的
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logging.error(f"Task failed: {e}", exc_info=True)
 
 def parse_address(address: str) -> Optional[tuple]:
@@ -71,4 +93,6 @@ def parse_address(address: str) -> Optional[tuple]:
     try:
         return (parts[0], int(parts[1]))
     except ValueError:
+        import traceback
+        traceback.print_exc()    
         return None

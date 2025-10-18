@@ -1,4 +1,4 @@
 uvloop
 asyncio
 aiohttp
-psutil==7.0.0
+psutil

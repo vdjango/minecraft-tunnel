@@ -6,90 +6,47 @@
 
 import asyncio
 import logging
-import signal
 import sys
-from typing import Dict, Any
 
-from core.server import TunnelServer
-from common.utils import setup_logging, load_config
-from monitor.metrics import MetricsCollector
+from core.server import NodeApp
+from common.utils import setup_logging
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        # logger.FileHandler("tunnel_host.log"),
-        logging.StreamHandler()
-    ]
-)
+logger = logging.getLogger("App")
 
 
-
-class TunnelServerApp:
+class ServerApp(NodeApp):
     """隧道服务器应用程序"""
-    
     def __init__(self, config_path: str = "config/server.conf"):
-        self.logger = logging.getLogger("TunnelServerApp")
-        self.config = load_config(config_path)
-        self.server = None
-        self.metrics = MetricsCollector()
-        self._setup_signal_handlers()
+        super(ServerApp, self).__init__(config_path)
     
-    def _setup_signal_handlers(self):
-        """设置信号处理器"""
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-    
-    def _signal_handler(self, signum, frame):
-        """信号处理"""
-        self.logger.info(f"Received signal {signum}, shutting down...")
-        if self.server:
-            asyncio.create_task(self.server.graceful_shutdown())
-    
-    async def run(self):
-        """运行服务器"""
-        try:
-            # 初始化服务器
-            self.server = TunnelServer(self.config)
-            
-            # 启动服务器
-            await self.server.start()
-            
-        except Exception as e:
-            self.logger.error(f"Server error: {e}")
-            raise
-    
-    async def stop(self):
-        """停止服务器"""
-        if self.server:
-            await self.server.stop()
 
 async def main():
     """主函数"""
-    logger = logging.getLogger("TunnelServerApp")
     # 设置日志
     setup_logging("config/logger.conf")
     
     # 创建并运行应用
-    app = TunnelServerApp()
+    app = ServerApp()
     
     try:
         await app.run()
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logger.error(f"Server crashed: {e}")
-        sys.exit(1)
-    finally:
+        # 确保执行关闭流程
         await app.stop()
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     # 设置事件循环策略（使用uvloop如果可用）
-    # try:
-    #     import uvloop
-    #     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    # except ImportError:
-    #     pass
+    try:
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    except ImportError:
+        pass
     
     asyncio.run(main())

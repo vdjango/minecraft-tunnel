@@ -236,7 +236,8 @@ docker-compose up -d
 
 正在完善详细的节点部署文档和配置说明，如有需要后续提供。
 
-**3. 对于开发者/从源码开发**
+
+### 👩‍💻代码贡献者
 
 1. 克隆项目​
 ```bash
@@ -257,6 +258,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+关于网络通信协议请参考 -> [网络通信协议技术文档](PROTOCOL_STANDARD.md)
+
 ## 🤝 参与共建
 
 我们深信，一个强大的联机网络离不开社区的每一份力量。
@@ -271,7 +274,11 @@ pip install -r requirements.txt
 
 详细的社区许可和倡议，请阅读 COMMUNITY_LICENSE.md。
 
-## 📄 许可证
+## 📃其他文档
+
+* [网络通信协议技术文档](PROTOCOL_STANDARD.md)
+
+## 🧾许可证
 
 本项目基于 **​​GNU Affero 通用公共许可证 v3.0 (AGPLv3)​**​ 开源。
 

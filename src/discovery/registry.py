@@ -2,31 +2,22 @@ import asyncio
 import logging
 import time
 from typing import Dict, List, Set, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from discovery.models import NodeInfo
+from loadbalancer.manager import LoadBalancerManager
 
-@dataclass
-class NodeInfo:
-    """节点信息"""
-    node_id: str
-    host: str
-    port: int
-    node_type: str  # 'master' or 'worker'
-    load: float  # 当前负载 0-1
-    last_heartbeat: float
-    is_active: bool = True
-
-
-class ServiceRegistry:
+class ServiceRegistry(LoadBalancerManager):
     """服务注册中心"""
     
     def __init__(self, config: Dict):
+        super(ServiceRegistry, self).__init__(config)
         self.config = config
-        self.nodes: Dict[str, NodeInfo] = {}
+        
         self.heartbeat_interval = int(config.get('discovery').get('heartbeat_interval', 30))
         self.heartbeat_timeout = int(config.get('discovery').get('heartbeat_timeout', 90))
         self.logger = logging.getLogger("ServiceRegistry")
-    
+
     async def start(self):
         """启动注册中心"""
         self.logger.info("Starting service registry")
@@ -46,13 +37,16 @@ class ServiceRegistry:
     async def register_node(self, node_info: NodeInfo):
         """注册节点"""
         self.nodes[node_info.node_id] = node_info
-        self.logger.info(f"Registered node: {node_info.node_id}")
+        return True
     
     async def unregister_node(self, node_id: str):
         """注销节点"""
         if node_id in self.nodes:
             del self.nodes[node_id]
-            self.logger.info(f"Unregistered node: {node_id}")
+    
+    async def get_node(self, node_id) -> NodeInfo:
+        """获取可用节点列表"""
+        return self.nodes.get(node_id, None)
     
     async def get_available_nodes(self, node_type: str = None) -> List[NodeInfo]:
         """获取可用节点列表"""
@@ -84,6 +78,9 @@ class ServiceRegistry:
                 await self._check_heartbeats()
                 await asyncio.sleep(self.heartbeat_interval)
             except Exception as e:
+                import traceback
+                traceback.print_exc()
+
                 self.logger.error(f"Heartbeat check error: {e}")
     
     async def _check_heartbeats(self):
@@ -152,6 +149,9 @@ class ServiceRegistry:
             return health_result
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            
             self.logger.error(f"Health check failed: {e}")
             return {
                 'status': 'error',

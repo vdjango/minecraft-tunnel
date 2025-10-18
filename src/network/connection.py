@@ -1,299 +1,294 @@
 import asyncio
 import logging
+import struct
 import time
-from typing import Dict, List, Optional
+import uuid
+
+from typing import Any, Dict, List, Optional,Any
+
+from core.plugin.manager import PluginManager
+from core.plugin.types import PluginNodeType, PluginEvent, PluginEventType
+from network.base import Connection, ConnectionBase
+
+from .exceptions import ConnectionClosedError, HandshakeError
+from .protocol import ActionType, PacketType, ConnectionState, pack_byte, pack_byte_byte, pack_header, pack_ulonglong, pack_ushort, unpack_byte, unpack_byte_byte_byte, unpack_header, unpack_ulonglong, unpack_ushort
+
+
+from typing import Dict, Any, List, Optional, Set, Callable
 from dataclasses import dataclass
-from enum import Enum
-
-class ConnectionState(Enum):
-    INITIAL = "initial"
-    HANDSHAKE = "handshake" 
-    AUTHENTICATED = "authenticated"
-    FORWARDING = "forwarding"
-    CLOSING = "closing"
-    CLOSED = "closed"
+from .protocol import PacketType, ActionType
 
 
-@dataclass
-class ConnectionStats:
-    bytes_received: int = 0
-    bytes_sent: int = 0
-    packets_received: int = 0
-    packets_sent: int = 0
-    created_at: float = time.time()
-    last_activity: float = time.time()
 
-class ConnectionManager:
-    """连接管理器"""
+class ConnectionManager(ConnectionBase):
+    """连接管理器，统一处理网络IO"""
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, plugin_manager: PluginManager):
         self.config = config
-        self.connections: Dict[int, 'TunnelConnection'] = {}
+        self.plugin_manager = plugin_manager
         self.logger = logging.getLogger("ConnectionManager")
+        self.connections: Dict[str, Connection] = {}
+        self._running = False
+        self._read_tasks: Set[asyncio.Task] = set()
+        self._monitor_task: Optional[asyncio.Task] = None
+        self._server: Optional[asyncio.Server] = None
     
-    def health_check(self) -> Dict:
-        """连接管理器健康检查"""
-        try:
-            total_connections = self.count_connections()
-            connection_stats = []
-            
-            # 收集连接统计信息
-            for conn in self.connections.values():
-                connection_stats.append({
-                    'connection_id': conn.connection_id,
-                    'state': conn.state.value if hasattr(conn.state, 'value') else str(conn.state),
-                    'bytes_received': conn.stats.bytes_received,
-                    'bytes_sent': conn.stats.bytes_sent,
-                    'uptime': time.time() - conn.stats.created_at
-                })
-            
-            return {
-                'status': 'healthy',
-                'total_connections': total_connections,
-                'connection_details': connection_stats,
-                'timestamp': time.time()
-            }
-        except Exception as e:
-            return {
-                'status': 'error',
-                'error': str(e),
-                'timestamp': time.time()
-            }
-        
-    def add_connection(self, connection: 'TunnelConnection'):
-        """添加新连接"""
-        self.connections[connection.connection_id] = connection
-        self.logger.info(f"Added connection {connection.connection_id}")
-    
-    def remove_connection(self, connection_id: int):
-        """移除连接"""
-        if connection_id in self.connections:
-            del self.connections[connection_id]
-            self.logger.info(f"Removed connection {connection_id}")
-    
-    def get_connection(self, connection_id: int) -> Optional['TunnelConnection']:
-        """获取连接"""
-        return self.connections.get(connection_id)
-    
-    def get_all_connections(self) -> List['TunnelConnection']:
-        """获取所有连接"""
-        return list(self.connections.values())
-    
-    def count_connections(self) -> int:
-        """统计连接数"""
-        return len(self.connections)
-    
-    def close_all_connections(self):
-        """关闭所有连接"""
-        for connection in self.connections.values():
-            asyncio.create_task(connection.close())
-        self.connections.clear()
-        self.logger.info("Closed all connections")
+    async def start(self):
+        """启动连接管理器"""
+        await super(ConnectionManager, self).start()
+        # 启动连接监控任务
+        self._monitor_task = asyncio.create_task(self._monitor_connections())
 
-
-class TunnelConnection:
-    """隧道连接处理"""
-    
-    def __init__(self, connection_id: int, reader: asyncio.StreamReader,
-                 writer: asyncio.StreamWriter, client_addr: tuple):
-        self.connection_id = connection_id
-        self.reader = reader
-        self.writer = writer
-        self.client_addr = client_addr
-        self.state = ConnectionState.INITIAL
-        self.stats = ConnectionStats()
-        self.remote_connection = None  # 远程游戏服务器连接
-        self.buffer_size = 8192
-        self.logger = logging.getLogger(f"Connection-{connection_id}")
-    
-    async def handle(self):
-        """处理连接生命周期"""
-        try:
-            self.logger.info("Handling new connection")
-            
-            # 握手阶段
-            await self._handshake()
-            
-            # 认证阶段
-            if not await self._authenticate():
-                return
-            
-            # 数据转发阶段
-            await self._forward_data()
-            
-        except asyncio.CancelledError:
-            self.logger.info("Connection cancelled")
-        except Exception as e:
-            self.logger.error(f"Connection error: {e}")
-        finally:
-            await self._cleanup()
-    
-    async def close(self):
-        """关闭连接"""
-        if self.state != ConnectionState.CLOSED:
-            self.state = ConnectionState.CLOSING
-            await self._cleanup()
-    
-    async def _handshake(self):
-        """握手协议"""
-        self.state = ConnectionState.HANDSHAKE
-        self.logger.info("Starting handshake")
-        
-        # 读取握手数据
-        handshake_data = await self.reader.read(1024)
-        if not handshake_data:
-            raise ConnectionError("Client disconnected during handshake")
-        
-        # 解析握手信息
-        handshake_info = await self._parse_handshake(handshake_data)
-        
-        # 建立到远程游戏服务器的连接
-        self.remote_connection = await self._connect_to_game_server(handshake_info)
-        
-        # 发送握手响应
-        await self._send_handshake_response()
-        
-        self.state = ConnectionState.AUTHENTICATED
-        self.logger.info("Handshake completed")
-    
-    async def _authenticate(self) -> bool:
-        """认证连接"""
-        # 这里可以实现认证逻辑
-        return True  # 暂时直接返回成功
-    
-    async def _forward_data(self):
-        """数据转发（不批量处理，保持实时性）"""
-        self.state = ConnectionState.FORWARDING
-        self.logger.info("Starting data forwarding")
-        
-        # 创建双向转发任务
-        client_to_server = asyncio.create_task(
-            self._forward_client_to_server()
-        )
-        server_to_client = asyncio.create_task(
-            self._forward_server_to_client()
-        )
-        
-        # 等待任意一个任务完成（意味着连接断开）
-        done, pending = await asyncio.wait(
-            [client_to_server, server_to_client],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        
-        # 取消未完成的任务
-        for task in pending:
-            task.cancel()
-        
-        self.logger.info("Data forwarding ended")
-    
-    async def _forward_client_to_server(self):
-        """从客户端转发数据到服务器"""
-        try:
-            while self.state == ConnectionState.FORWARDING:
-                # 读取客户端数据
-                data = await self.reader.read(self.buffer_size)
-                if not data:
-                    break  # 连接关闭
-                
-                # 更新统计信息
-                self.stats.bytes_received += len(data)
-                self.stats.packets_received += 1
-                self.stats.last_activity = time.time()
-                
-                # 立即转发到游戏服务器
-                if self.remote_connection:
-                    self.remote_connection.writer.write(data)
-                    await self.remote_connection.writer.drain()
-                    
-                    self.stats.bytes_sent += len(data)
-                    self.stats.packets_sent += 1
-                
-        except Exception as e:
-            self.logger.debug(f"Client to server error: {e}")
-    
-    async def _forward_server_to_client(self):
-        """从服务器转发数据到客户端"""
-        try:
-            while self.state == ConnectionState.FORWARDING:
-                # 读取服务器数据
-                if not self.remote_connection:
-                    break
-                    
-                data = await self.remote_connection.reader.read(self.buffer_size)
-                if not data:
-                    break  # 连接关闭
-                
-                # 更新统计信息
-                self.stats.bytes_received += len(data)
-                self.stats.packets_received += 1
-                self.stats.last_activity = time.time()
-                
-                # 立即转发到客户端
-                self.writer.write(data)
-                await self.writer.drain()
-                
-                self.stats.bytes_sent += len(data)
-                self.stats.packets_sent += 1
-                
-        except Exception as e:
-            self.logger.debug(f"Server to client error: {e}")
-    
-    async def _parse_handshake(self, data: bytes) -> Dict:
-        """解析握手数据"""
-        # 这里实现Minecraft握手协议解析
-        return {
-            'server_host': '127.0.0.1',
-            'server_port': 25565
-        }
-    
-    async def _connect_to_game_server(self, handshake_info: Dict) -> 'TunnelConnection':
-        """连接到远程游戏服务器"""
-        try:
-            reader, writer = await asyncio.open_connection(
-                handshake_info['server_host'],
-                handshake_info['server_port']
-            )
-            
-            # 创建远程连接对象
-            return type('RemoteConnection', (), {
-                'reader': reader,
-                'writer': writer
-            })()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to connect to game server: {e}")
-            raise
-    
-    async def _send_handshake_response(self):
-        """发送握手响应"""
-        # 实现Minecraft握手响应
-        response = b"\x00"  # 示例响应
-        self.writer.write(response)
-        await self.writer.drain()
-    
-    async def _cleanup(self):
-        """清理连接资源"""
-        if self.state == ConnectionState.CLOSED:
-            return
-            
-        self.state = ConnectionState.CLOSING
-        self.logger.info("Cleaning up connection")
-        
-        # 关闭远程连接
-        if self.remote_connection:
+    async def stop(self):
+        """停止连接管理器"""
+        if self._monitor_task and not self._monitor_task.done():
+            # 取消监控任务
+            self._monitor_task.cancel()
             try:
-                self.remote_connection.writer.close()
-                await self.remote_connection.writer.wait_closed()
-            except:
+                await self._monitor_task
+            except asyncio.CancelledError:
                 pass
         
-        # 关闭客户端连接
+        await super(ConnectionManager, self).stop()
+
+    async def process_packet(self, connection: Connection, packet_type: int, data: bytes):
+        """处理数据包"""
         try:
-            self.writer.close()
-            await self.writer.wait_closed()
-        except:
-            pass
-        
-        # 更新状态
-        self.state = ConnectionState.CLOSED
-        self.logger.info("Connection closed")
+            # 发送数据包接收事件
+            await self.plugin_manager.emit_event(PluginEvent(
+                PluginEventType.PACKET_RECEIVED,
+                self,
+                {
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr,
+                    'packet_type': packet_type,
+                    'data': data
+                }
+            ))
+            
+            # 根据数据包类型处理
+            if packet_type == PacketType.HEARTBEAT:  # 心跳包
+                result: list = await self.plugin_manager.execute_action_plugins('heartbeat', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+            elif packet_type == PacketType.REGISTER_NODE:  # 注册节点
+                result: list = await self.plugin_manager.execute_action_plugins('registration', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+            elif packet_type == PacketType.REQUEST_NODE:  # 请求节点
+                result: list = await self.plugin_manager.execute_action_plugins('request_node', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+            elif packet_type == PacketType.STATUS_UPDATE:  # 状态更新
+                result: list = await self.plugin_manager.execute_action_plugins('status_update', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+            elif packet_type == PacketType.DISCONNECT:  # 断开连接
+                result: list = await self.plugin_manager.execute_action_plugins('disconnect', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+                await self._handle_disconnect(connection, data)
+            elif packet_type == PacketType.HANDSHAKE_REQUEST:  # 握手请求
+                result: list = await self.plugin_manager.execute_action_plugins('handshake', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+                # 注意：握手请求通常在握手阶段处理，这里可能不会出现，但为了完整性可以处理或记录
+                self.logger.warning(f"[非法操作] 处于就绪状态的意外握手请求: {connection.connection_id}")
+            elif packet_type == PacketType.AUTH_REQUEST:  # 认证请求
+                result: list = await self.plugin_manager.execute_action_plugins('authentication', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+            else:
+                result: list = await self.plugin_manager.execute_action_plugins('custom', {
+                    'connection': connection,
+                    'data': data,
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr
+                })
+                plugin_response = result[0] if result else None
+                await self._send_plugin_response(connection, plugin_response)
+
+                self.logger.warning(f"未知数据包类型: {packet_type}, Connection: {connection.connection_id}")
+                await self.plugin_manager.emit_event(PluginEvent(
+                    PluginEventType.CUSTOM_EVENT,
+                    self,
+                    {
+                        'connection_id': connection.connection_id,
+                        'client_addr': connection.client_addr,
+                        'event_type': 'unknown_packet',
+                        'packet_type': packet_type,
+                        'data': data
+                    }
+                ))
+            
+            # 发送数据包处理完成事件
+            await self.plugin_manager.emit_event(PluginEvent(
+                PluginEventType.PACKET_PROCESSED,
+                self,
+                {
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr,
+                    'packet_type': packet_type,
+                    'data': data
+                }
+            ))
+            
+        except Exception as e:
+            self.logger.error(f"处理数据包时出错: {connection.connection_id}, Error: {e}")
+            import traceback
+            traceback.print_exc()
+            # 发送数据包处理错误事件
+            await self.plugin_manager.emit_event(PluginEvent(
+                PluginEventType.CONNECTION_ERROR,
+                self,
+                {
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr,
+                    'error': f"Packet processing error: {e}",
+                    'packet_type': packet_type
+                }
+            ))
+    
+    async def _handle_disconnect(self, connection: Connection, data: bytes):
+        """处理断开连接请求（修复版）""" # TODO 做成插件
+        try:
+            # 解析断开连接数据
+            # 格式: 原因长度(2B) | 原因(变长)
+            if len(data) < 2:
+                reason = "Unknown reason"
+            else:
+                reason_length = unpack_ushort(data[:2])
+                if len(data) < 2 + reason_length:
+                    reason = "Invalid reason format"
+                else:
+                    reason = data[2:2+reason_length].decode('utf-8')
+            
+            # 发送断开连接响应
+            # 格式: 状态(1B) | 消息长度(2B) | 消息(变长)
+            message = "Disconnect acknowledged".encode('utf-8')
+            response_data = pack_header(0x00, len(message)) + message
+            await self._send_data(connection, response_data, PacketType.DISCONNECT)
+            
+            # 发送断开连接事件
+            await self.plugin_manager.emit_event(PluginEvent(
+                PluginEventType.CONNECTION_CLOSED,
+                self,
+                {
+                    'connection_id': connection.connection_id,
+                    'client_addr': connection.client_addr,
+                    'state': connection.state.value,
+                    'disconnect_data': {
+                        'reason': reason
+                    }
+                }
+            ))
+            
+            # 关闭连接
+            await self.close_connection(connection.connection_id)
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+
+            self.logger.error(f"处理断开连接时出错: {connection.connection_id}, Error: {e}")
+            # 即使出错也要关闭连接
+            await self.close_connection(connection.connection_id)
+
+    async def _monitor_connections(self):
+        """监控连接状态"""
+        while self._running:
+            try:
+                # 检查所有连接的活动状态
+                inactive_connections = []
+                current_time = time.time()
+                
+                for connection_id, connection in list(self.connections.items()):
+                    # 检查连接是否超时
+                    if not connection.is_active(timeout=300):  # 5分钟超时
+                        self.logger.warning(f"连接超时: {connection_id}")
+                        inactive_connections.append(connection_id)
+                    # 检查连接是否长时间处于非就绪状态
+                    elif (connection.state != ConnectionState.READY and 
+                          current_time - connection.last_activity > 60):  # 1分钟
+                        self.logger.warning(f"连接卡滞 {connection.state}: {connection_id}")
+                        inactive_connections.append(connection_id)
+                
+                # 关闭不活跃的连接
+                for connection_id in inactive_connections:
+                    self.logger.info(f"关闭非活动连接: {connection_id}")
+                    await self.close_connection(connection_id)
+                
+                # 记录连接统计
+                active_count = len([c for c in self.connections.values() if c.is_active()])
+                ready_count = len([c for c in self.connections.values() if c.is_ready()])
+                self.logger.info(f"Connection stats: {active_count} active, {ready_count} ready, {len(self.connections)} total")
+                
+                # 等待下一次检查
+                await asyncio.sleep(30)  # 每30秒检查一次
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"连接监视器出错: {e}")
+                import traceback
+                traceback.print_exc()
+                await asyncio.sleep(10)  # 出错时等待10秒
+
+
+# 连接管理器工厂函数
+def create_connection_manager(config: Dict, plugin_manager: PluginManager) -> ConnectionManager:
+    """创建连接管理器实例"""
+    return ConnectionManager(config, plugin_manager)
+
+# 连接管理器单例模式
+class ConnectionManagerSingleton:
+    """连接管理器单例"""
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls, config: Dict, plugin_manager: PluginManager) -> ConnectionManager:
+        """获取连接管理器单例"""
+        if cls._instance is None:
+            cls._instance = ConnectionManager(config, plugin_manager)
+        return cls._instance
+    
+    @classmethod
+    def destroy_instance(cls):
+        """销毁连接管理器单例"""
+        if cls._instance:
+            cls._instance = None

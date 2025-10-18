@@ -112,3 +112,29 @@ tunnel-server/
 ├── LICENSE               # 许可证文件
 ├── README.md             # 项目说明
 └── CHANGELOG.md          # 变更日志
+
+
+
+src/
+├── network/
+│   ├── __init__.py
+│   ├── connection.py          # 基础连接类
+│   ├── protocol.py            # 协议定义和解析
+│   └── exceptions.py          # 自定义异常
+├── node/
+│   ├── __init__.py
+│   ├── base.py               # 基础节点类
+│   ├── master.py             # Master节点连接处理
+│   └── worker.py             # Worker节点连接处理
+├── discovery/
+│   ├── __init__.py
+│   ├── registry.py           # 服务注册中心
+│   └── models.py             # 数据模型
+├── loadbalancer/
+│   ├── __init__.py
+│   ├── manager.py            # 负载均衡管理器
+│   └── strategies.py        # 负载均衡策略
+└── utils/
+    ├── __init__.py
+    ├── logging.py            # 日志配置
+    └── validation.py        # 数据验证
