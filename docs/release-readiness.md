@@ -10,7 +10,7 @@
 python -X utf8 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-安装启动器测试依赖并准备相邻源码后，再运行 `python deploy/check_server.py`。逐项覆盖和独立 P2P 命令见 [测试说明](../tests/README.md)。CI 运行本仓库用例，未包含跨公网网络环境、真实 Minecraft 世界或真实 SMTP 收件。
+安装启动器测试依赖并准备相邻源码后，在启动器仓库运行对应 unittest 用例。逐项覆盖和 P2P 命令见 [测试说明](../tests/README.md)。CI 运行本仓库用例，未包含跨公网网络环境、真实 Minecraft 世界或真实 SMTP 收件。
 
 不要将历史测试总数当作当前代码的结果。发布记录应保存提交号、Python/操作系统版本、执行命令、用例结果和未执行项；日志中不得包含接入码或用户秘密。
 
@@ -20,7 +20,7 @@ python -X utf8 -m unittest discover -s tests -p "test_*.py" -v
 - 同房间混合 P2P 与中继，多访客并发、传输完整性、EOF 与断线清理；关闭归属节点后验证重建及访客重连。
 - 真实 Minecraft 首次进服、区块加载、视距和模组负载，校准单人预算与预留带宽。默认预算不是峰值实测或流畅保证。
 - 真实 SMTP 收件、邮件显示、验证码绑定/过期/重放/限速，以及服务不可用时的错误提示。
-- 可信 HTTPS、服务账户权限、备份恢复、升级回滚与端口/防火墙规则。参考 [部署说明](../deploy/README.md)。
+- 首次浏览器向导、可信 HTTPS、服务账户权限、备份恢复、升级回滚与端口/防火墙规则。参考 [部署说明](deployment.md)。
 
 ## 凭据与数据
 

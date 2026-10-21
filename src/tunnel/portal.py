@@ -4,6 +4,7 @@ import base64
 from collections import OrderedDict, deque
 import hashlib
 import hmac
+import html
 import json
 import os
 from pathlib import Path
@@ -139,19 +140,15 @@ class Portal:
         return web.Response(text=page, content_type='text/html')
 
     async def developers_page(self, request):
-        return web.FileResponse(Path(__file__).with_name('web') / 'developers.html')
+        page = (Path(__file__).with_name('web') / 'developers.html').read_text(encoding='utf-8')
+        protocol = (Path(__file__).resolve().parents[2] / 'PROTOCOL_STANDARD.md').read_text(encoding='utf-8')
+        return web.Response(text=page.replace('{{PROTOCOL}}', html.escape(protocol)), content_type='text/html')
 
     async def launcher_example(self, request):
-        response = web.FileResponse(Path(__file__).with_name('web') / 'launcher-example.py')
-        response.headers['Content-Disposition'] = 'attachment; filename="launcher-example.py"'
-        response.content_type = 'text/plain'
-        return response
+        raise web.HTTPFound('/developers#examples')
 
     async def protocol_document(self, request):
-        response = web.FileResponse(Path(__file__).resolve().parents[2] / 'PROTOCOL_STANDARD.md')
-        response.headers['Content-Disposition'] = 'attachment; filename="PROTOCOL_STANDARD.md"'
-        response.content_type = 'text/plain'
-        return response
+        raise web.HTTPFound('/developers#protocol')
 
     async def asset(self, request):
         return web.FileResponse(Path(__file__).with_name('web') / request.path.lstrip('/'))

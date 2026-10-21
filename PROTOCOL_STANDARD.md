@@ -62,7 +62,7 @@ SSH 子系统名为 `buggcraft-rooms-v1`，使用 UTF-8 JSON Lines，一行一�
 
 原来的自定义二进制包头、PacketType、主从注册与 Raft 文档已随未使用框架一起移出当前实现。接入应复用现有 SDK，不能按旧文档构造消息。
 
-部署与信任边界见 [部署说明](deploy/README.md)，测试与验证边界见 [测试说明](tests/README.md)。
+部署与信任边界见 [部署说明](docs/deployment.md)，测试与验证边界见 [测试说明](tests/README.md)。
 
 ## 第三方启动器标准入口
 

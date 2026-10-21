@@ -1,0 +1,25 @@
+services:
+  node:
+    build: .
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    ports:
+      - "3333:3333/tcp"
+      - "3333:3333/udp"
+      - "18443:18443/tcp"
+    volumes:
+      - node-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  node-data:

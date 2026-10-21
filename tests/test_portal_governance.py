@@ -67,13 +67,16 @@ class GovernanceTests(unittest.IsolatedAsyncioTestCase):
         for path, expected in [('/admin','id="admin-peers"'),('/developers','account_lookup'),
                                ('/admin.js','confirmation'),('/console.css','.admin-node'),
                                ('/console.css','.friend-entry'),
-                               ('/launcher-example.py',"known_hosts=([public], [], [])"),
-                               ('/protocol.md','节点管理的权限与流程')]:
+                               ('/developers','节点管理的权限与流程')]:
             response = await self.client.get(path)
             self.assertEqual(response.status, 200, path)
             self.assertIn(expected, await response.text())
-        response = await self.client.get('/launcher-example.py')
-        self.assertIn('attachment', response.headers['Content-Disposition'])
+        for path, location in [('/launcher-example.py', '/developers#examples'),
+                               ('/protocol.md', '/developers#protocol')]:
+            response = await self.client.get(path, allow_redirects=False)
+            self.assertEqual(response.status, 302)
+            self.assertEqual(response.headers['Location'], location)
+            self.assertNotIn('Content-Disposition', response.headers)
         self.assertEqual((await self.client.get('/api/admin')).status, 401)
         self.assertEqual((await self.client.post('/api/federation/block', json=self.action())).status, 401)
         self.assertFalse(self.a.blocked)

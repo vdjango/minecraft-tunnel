@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!requirements.txt
+!PROTOCOL_STANDARD.md
+!src/
+!src/**
+**/__pycache__/
+**/*.pyc

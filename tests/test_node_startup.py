@@ -17,8 +17,7 @@ from cryptography.hazmat.primitives import hashes
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
-sys.path.insert(0, str(ROOT / 'deploy'))
-from init_node import initialize
+from tunnel.provisioning import initialize
 
 spec = importlib.util.spec_from_file_location('node_entry', ROOT / 'src/main.py')
 entry = importlib.util.module_from_spec(spec)

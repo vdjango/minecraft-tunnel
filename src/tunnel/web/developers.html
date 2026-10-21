@@ -21,13 +21,13 @@
         <a href="#overview">接入方式</a><a href="#quickstart">开始接入</a><a href="#directory-api">节点和房间</a>
         <a href="#rooms-api">连接方式</a><a href="#friends-api">账号与好友</a><a href="#examples">语言示例</a><a href="#security-api">安全与测试</a>
       </nav>
-      <div class="docs-side-files"><span>协议与参考代码</span><a href="/protocol.md">完整协议说明 ↗</a><a href="/launcher-example.py">Python 目录示例 ↓</a></div>
+      <div class="docs-side-files"><span>协议与参考代码</span><a href="#protocol">完整协议说明</a><a href="#examples">各语言接入示例</a></div>
     </div></aside>
     <div class="docs-content">
       <section class="docs-hero" aria-labelledby="guide-title">
         <div class="eyebrow">LAUNCHER INTEGRATION</div><h1 id="guide-title">把联机带进<br>你的启动器。</h1>
         <p>通过标准 JSON-RPC 2.0 接口添加节点、查询房间并连接游戏。启动器只需管理一个本地桥接进程，不必实现 ICE 打洞或中继协议。</p>
-        <div class="docs-hero-actions"><a class="primary" href="#quickstart">开始接入 <span aria-hidden="true">↗</span></a><a class="secondary" href="/protocol.md">阅读完整协议</a></div>
+        <div class="docs-hero-actions"><a class="primary" href="#quickstart">开始接入 <span aria-hidden="true">↗</span></a><a class="secondary" href="#protocol">阅读完整协议</a></div>
         <div class="docs-meta"><span>HTTPS · 公开状态</span><span>JSON-RPC 2.0 · UTF-8</span><span>P2P 优先 · 中继回退</span></div>
       </section>
 
@@ -156,7 +156,7 @@ var room=await Rpc(3,"room.join",new { node, invite, transport="auto" });
 LaunchMinecraft(room.GetProperty("address").GetString());
 await Rpc(4,"room.close",new { session=room.GetProperty("session").GetString() });</code></pre></details>
         </div>
-        <div class="docs-callout"><strong>测试请使用自己部署的节点</strong><p>连接能否直达取决于两端网络、路由器、防火墙及 UDP 状态。请分别测试 P2P 成功、UDP 被阻断后中继、手动仅中继、断线清理和多名玩家混合路径。</p><a href="/protocol.md">阅读协议细节 →</a></div>
+        <div class="docs-callout"><strong>测试请使用自己部署的节点</strong><p>连接能否直达取决于两端网络、路由器、防火墙及 UDP 状态。请分别测试 P2P 成功、UDP 被阻断后中继、手动仅中继、断线清理和多名玩家混合路径。</p><a href="#protocol">阅读协议细节 →</a></div>
       </section>
 
       <section id="security-api" class="docs-section">
@@ -170,6 +170,7 @@ await Rpc(4,"room.close",new { session=room.GetProperty("session").GetString() }
           <li>说明中继不会使房间会话自动迁移；节点恢复或更换后需重新加入。</li>
         </ul>
       </section>
+      <section id="protocol" class="docs-section"><div class="docs-section-heading"><span>08 / PROTOCOL REFERENCE</span><h2>完整协议参考</h2><p>与仓库中的协议文档同步，可直接在本页查阅。</p></div><pre class="protocol-reference">{{PROTOCOL}}</pre></section>
       <footer class="docs-footer"><span>BUGGCRAFT / LAUNCHER GUIDE</span><a href="#guide-title">回到开头 ↑</a></footer>
     </div>
   </div></main>
