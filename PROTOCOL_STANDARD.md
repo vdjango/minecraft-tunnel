@@ -1,857 +1,145 @@
-# 网络通信协议技术文档
+# 当前节点通信协议
 
-## 文档概述
+本文件描述当前 AsyncSSH 实现。服务端入口为 `src/main.py`，控制协议实现以 `src/tunnel/directory.py`、`chat.py`、`federation.py` 和 `relay.py` 为准；启动器 SDK 位于 `buggcraft/src/buggcraft/hookup/`。
 
-本文档定义了节点间通信的协议标准、数据包格式、类型定义及编码规范，作为后续开发的技术标准和代码规范。本文档旨在为开发团队提供清晰、详细的技术参考，确保系统的一致性和可维护性。
+## 传输与身份
 
-### 1. 协议概述
+联机控制、信令与中继使用 SSH 加密连接；P2P 游戏流量使用 WebRTC DTLS/SCTP。客户端必须校验节点配置中的固定服务器公钥。玩家访问凭据与管理员网页密码分开。房主、访客、目录与联邦成员分别验证权限，只允许本房间的转发目标，不开放 shell、SFTP 或任意目标代理。
 
-#### 1.1 设计原则
+网页使用 HTTPS。接入码封装节点入口、公钥与玩家凭据，属于敏感信息；编码本身不构成加密，也不能阻止客户端得知实际连接地址。
 
-* ​网络字节序​​：所有数据包使用大端序（Big-Endian）
-* ​​类型明确​​：每个数据包有明确的类型标识
-* ​​扩展性​​：协议设计支持未来扩展
-* 错误处理​​：包含完善的错误处理机制
+## 房间目录
 
-#### 1.2 通信流程
+SSH 子系统名为 `buggcraft-rooms-v1`，使用 UTF-8 JSON Lines，一行一个对象。请求示例：
 
-* TCP连接建立
-* 握手协议交换
-* 身份认证
-* 数据交换
-* 连接关闭
-
-### 2. 数据包通用格式
-
-#### 2.1 数据包结构
-
-```bash
-+----------------+----------------+----------------+
-|  包类型 (1B)   |  数据长度 (2B) |    数据 (变长)  |
-+----------------+----------------+----------------+
+```json
+{"op":"ping"}
 ```
 
-#### 2.2 包头格式
+响应格式：
 
-更多参考 `src/network/protocol.py`
-
-```python
-# 打包包头
-def pack_header(packet_type: int, length: int) -> bytes:
-    return struct.pack('!BH', packet_type, length)
-
-# 解包包头
-def unpack_header(data: bytes) -> tuple:
-    return struct.unpack('!BH', data)
+```json
+{"ok":true,"result":{"version":1,"rooms":0,"max_streams":512,"capabilities":["room-invite-policy-v1"]}}
+{"ok":false,"error":"Invalid room ID"}
 ```
 
-### 3. 数据包类型定义
+请求缓冲上限 16 KiB；单身份每 10 秒最多 32 次请求，并限制控制通道数量。错误信息截断为 160 字符。列表每页最多 50 项，并限制序列化预算；客户端仍须按 SDK 限制读取响应。
 
-#### 3.1 包类型枚举 (PacketType)
+|操作|权限与用途|
+|---|---|
+|ping|协议版本和容量信息|
+|list|目录身份获取公开房间，使用 offset 分页|
+|state|目录身份查询房间就绪、等待、缺失或关闭状态|
+|topology|目录身份获取已验证联邦成员入口，供客户端缓存备用节点|
+|locate|目录身份按随机房间 ID 查找归属节点|
+|resolve|目录身份解析公开房间；需要邀请码时只返回 room，允许直接加入时还返回 secret；私密房间拒绝解析|
+|account_lookup|个人目录身份按 identifier 精确查用户名（不区分大小写）或完整账号 ID，查询同一联邦可达成员；返回 accounts 列表，每项只有 account 和 username，最多 8 项。公开用户名目录不要求开启加密副本；匿名凭据不能查好友|
+|configure / availability / close|房主更新房间资料、世界可用性与结束状态，具体字段见实现|
+|snapshot|经验证的联邦身份获取签名成员公告、房间目录、授权公开的账号目录及分配给本节点的加密副本|
+|account_record|联邦身份取回用户已授权跨节点使用的加密账号记录，不返回明文密码|
+|account_update|联邦身份向指定持久副本节点提交用户签名的新设置及复制策略|
+|introduce|将已签名的节点公告交给本地联邦验证，不绕过入网认证|
 
-更多参考 `src/network/protocol.py`
+游戏数据使用独立 SSH 转发通道及 AsyncSSH 流控，不封装为目录 JSON。聊天使用房间内独立控制通道，限制帧大小、速率与历史长度，不跨房间广播。
 
-```python
-class PacketType(IntEnum):
-    """数据包类型枚举"""
-    HANDSHAKE_REQUEST = 0x01    # 握手请求
-    HANDSHAKE_RESPONSE = 0x02   # 握手响应
-    AUTH_REQUEST = 0x03         # 认证请求
-    AUTH_RESPONSE = 0x04        # 认证响应
-    REGISTER_NODE = 0x05        # 注册节点
-    REQUEST_NODE = 0x06         # 请求节点
-    HEARTBEAT = 0x07            # 心跳包
-    STATUS_UPDATE = 0x08        # 状态更新
-    DISCONNECT = 0x09           # 断开连接
-    CUSTOM_EVENT = 0x0A         # 自定义事件
+`configure` 的 `public` 与 `require_invite` 均为布尔值，后者默认 false。`public=false` 时始终需要邀请码，且目录不展示；`public=true, require_invite=false` 表示大厅直接加入；两者均为 true 时公开展示但须持有邀请码。房间描述与签名联邦目录均含 `require_invite`。目录身份不能获取受保护房间的 secret，游戏客户端认证仍校验房间随机密钥。创建受保护的公开房间前，SDK 必须核对 `ping.capabilities` 含 `room-invite-policy-v1`，旧节点缺少该能力时停止创建。
+
+## 联邦与存活状态
+
+成员以自己的 Ed25519 私钥签名公告；同一网络还需入网密钥证明成员资格。私钥不进入同步副本。公告经验证后逐步传播，节点彼此探测，无需固定主节点。默认同步周期约 2 秒，目录有效期 10 秒，重复签名公告不能延长有效期。
+
+公开房间同步有限元数据；私密房间只同步随机 ID，不同步名称、邀请码密钥或聊天记录。账号同步包含公钥、签名与客户端加密记录，不能把全库字段都当作私密数据。
+
+账号复制必须包含用户签名的 `routing`（account、revision、copies、digest）与 `routing_signature`，绑定加密状态版本及摘要；无用户授权的旧格式记录不再导入。copies 为 0 时仍同步公开用户名、账号 ID、公钥与签名目录，但不向其他节点持久复制加密身份包；其他节点可以路由到在线注册节点登录，注册节点不可用时则需要恢复文件。copies 为 1–8 时维护注册节点加指定数量的额外持久副本。心跳 `account_copies` 只公告账号和当前密文摘要，用于移交确认与故障补位。登录节点可按目录临时取回密文，不自动成为持久副本。
+
+个人 `acct1` 凭据同时携带节点签名与用户对登录授权的 P-256 签名，绑定账号、签发节点、网络和最长 7 天的有效期；无用户证明的旧版个人凭据不再接受。联机 SSH password 仅使用 `~` 之前的凭据段，好友操作使用客户端保留的用户证明段。网页注册与登录无需向节点发送用户密码，管理员密码仍走原有 HTTPS 管理鉴权。
+
+签名提供来源认证，不保证成员内容诚实，也不提供强一致性或全网封禁。分区期间拒绝选择歧义的房间归属。
+
+## 恢复与兼容
+
+客户端首次发现网络后缓存备用入口。失联时可以重新查询目录并尝试其他节点；归属节点失败需要房主重建房间、访客重新进入游戏。旧 SSH/TCP、游戏会话和聊天历史不能自动迁移。
+
+原来的自定义二进制包头、PacketType、主从注册与 Raft 文档已随未使用框架一起移出当前实现。接入应复用现有 SDK，不能按旧文档构造消息。
+
+部署与信任边界见 [部署说明](deploy/README.md)，测试与验证边界见 [测试说明](tests/README.md)。
+
+## 第三方启动器标准入口
+
+第三方启动器使用独立连接组件，不实现 ICE、打洞、DTLS、SCTP 或 SSH 转发。组件通过 **JSON-RPC 2.0 over stdio** 与启动器通信：一行一个 UTF-8 JSON 请求和响应，版本字段固定为 `"2.0"`；当前不支持 batch 请求；请求上限 8 KiB。标准输入输出只承载协议帧，诊断写标准错误。组件负责节点固定公钥校验、P2P 探测、加密中转回退与回环地址监听。
+
+参考组件位于独立的 [buggcraft 仓库](https://github.com/vdjango/buggcraft)。安装其依赖后，在该仓库根目录启动（节点仓库本身不包含 `hookup`）：
+
+```sh
+# Linux/macOS
+PYTHONPATH=src/buggcraft python -m hookup bridge
 ```
 
-#### 3.2 节点类型枚举 (NodeType)
-```python
-class NodeType(IntEnum):
-    """节点类型枚举"""
-    COMMUNITY_NODE = 0x01      # 社区节点
-    PLAYER_HOST = 0x02         # 玩家主机
-    PLAYER_CLIENT = 0x03       # 玩家客户端
-    ALL = 0xFF                 # 所有节点类型
+```powershell
+# Windows PowerShell
+$env:PYTHONPATH = (Resolve-Path src/buggcraft).Path
+python -m hookup bridge
 ```
 
-#### 3.3 连接状态枚举 (ConnectionState)
-```python
-class ConnectionState(Enum):
-    """连接状态枚举"""
-    CONNECTED = "connected"          # 已连接
-    HANDSHAKING = "handshaking"     # 握手中
-    AUTHENTICATING = "authenticating" # 认证中
-    READY = "ready"                 # 就绪
-    CLOSING = "closing"             # 关闭中
-    CLOSED = "closed"               # 已关闭
-    ERROR = "error"                 # 错误
+桌面集成以子进程启动，先调用 `bridge.initialize`，然后将用户提供的普通或个人节点接入码调用一次 `node.add`。保存返回的进程内 `node` 句柄；后续房间调用只使用这个句柄。关闭进程会清理本机监听和远端会话。第三方应用应将接入码放在系统安全存储中，不得放在命令行参数、日志或 URL。匿名身份可以联机但没有好友能力；个人接入码同时是账号授权凭据。
+
+|JSON-RPC 方法|请求参数|返回值|
+|---|---|---|
+|bridge.initialize|`{"protocol":1}`|协议版本、能力和资源上限|
+|node.add|`{"code":"buggnode1-…"}`|进程内节点句柄、节点名称和身份类型|
+|node.remove|`{"node":"…"}`|删除节点；仍有活动房间时返回 `-32009`|
+|room.list|`{"node":"…","offset":0}`|公开房间及分页字段|
+|room.host|`{"node":"…","game_port":25565,"transport":"auto"}`|房间邀请码及会话；启动器继续在本机游戏服监听端口上运行|
+|room.join|`{"node":"…","invite":"bugg1-…","transport":"auto"}`|会话和本机地址，例如 `127.0.0.1:54123`；把该地址交给游戏客户端|
+|room.close|`{"session":"…"}`|关闭房间会话和本地端口|
+|session.list|`{}`|当前会话状态；访客路径为 `p2p` 或 `relay`，房主为 `auto`（接受混合路径）或 `relay`|
+
+房间路径按访客分别建立。`transport:"auto"`（默认）尝试 P2P，无法建连时该访客使用中继；`transport:"relay"` 让该访客跳过 P2P。同一个房间可以同时有 P2P 和中继访客。房主也可以在 `room.host` 指定 `transport:"relay"`，此时该房间所有访客使用中继。启动器应允许每位访客选择连接策略，并显示 SDK 返回的实际路径。
+
+除 JSON-RPC 标准错误 `-32700`（JSON 解析）、`-32600`（请求）、`-32601`（方法）和 `-32602`（参数）外，`-32000` 表示节点连接失败，`-32004` 表示句柄不存在，`-32009` 表示活动会话阻止删除，`-32010` 表示资源上限，`-32020`/`-32021` 表示房间启动失败/超时。错误文本不包含凭据。更完整字段、代码和维护的发行包由 `/developers` 指引；当前 Python 进程是接口参考实现，不代表已提供所有平台的签名安装包。
+
+接入序列示例：
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"bridge.initialize","params":{"protocol":1}}
+{"jsonrpc":"2.0","id":2,"method":"node.add","params":{"code":"buggnode1-<用户导出的接入码>"}}
+{"jsonrpc":"2.0","id":3,"method":"room.join","params":{"node":"<node句柄>","invite":"bugg1-<房间邀请码>","transport":"auto"}}
+{"jsonrpc":"2.0","id":4,"method":"room.close","params":{"session":"<session句柄>"}}
 ```
 
-#### 3.4 插件优先级枚举 (PluginPriority)
-```python
-class PluginPriority(IntEnum):
-    """插件优先级枚举"""
-    LOWEST = 0      # 最低优先级
-    LOW = 1         # 低优先级
-    NORMAL = 2      # 正常优先级
-    HIGH = 3        # 高优先级
-    HIGHEST = 4     # 最高优先级
-    CRITICAL = 5    # 关键优先级（系统核心插件）
-```
+访客启动后将结果中的本机回环地址交给 Minecraft。`transport:"auto"` 先尝试 WebRTC 直连，失败时在连接开始前选择 SSH 中转。已建立的 TCP 游戏连接若 P2P 路径中断会断开；玩家重连后可使用备用中转，不会伪称为透明迁移。直连会使同一房间对端获知网络地址，重视地址隐私时指定 `transport:"relay"`。端到端直连受 NAT 和防火墙影响，服务器 UDP 地址探测不是 TURN 中继，也不保证所有网络均能打洞。
 
-### 4. 具体数据包格式
+原生目录与转发协议作为高级扩展保留给不采用此连接组件的实现者：接入码包含 `server_host`、`server_port`、`token`、`server_public_key`。必须固定校验 SSH 主机公钥；目录用户名 `directory:rooms`，密码为 JSON 字符串 `{"token":"…"}`。房主用户名为 `host:ROOM_ID`、访客为 `client:ROOM_ID`，密码另含 `secret`。SDK 的 SSH 隧道直接支持中转模式；若第三方选择原生实现，必须自行处理安全、拥塞、重连、权限和协议兼容，且不会自动获得 P2P 能力。
 
-#### 4.1 握手请求 (HANDSHAKE_REQUEST = 0x01)
-​
-**​格式​​：** 版本(1B) | 协议版本(1B) | ID长度(1B) | ID(变长) | 能力标志(1B)
+聊天子系统 `buggcraft-chat-v1`：先发 `{"op":"hello","name":"昵称"}`，然后 `{"op":"send","text":"你好"}`；文本最多 256 UTF-16 单元，每帧最多 4096 字节，访客每 10 秒最多 10 个请求。服务端发 `ready`、`room`、`message`、`bridge`、`error`；历史消息以 `message` 加 `replay:true` 重放。好友认证使用消息内服务端确定的 `account`，不可相信自报昵称。
 
-打包方法​​：
-```python
-def pack_handshake_request(version: int, protocol_version: int, 
-                          identifier: str, capabilities: int) -> bytes:
-    identifier_bytes = identifier.encode('utf-8')
-    body_data = struct.pack('!BBB', version, protocol_version, len(identifier_bytes))
-    body_data += identifier_bytes
-    body_data += struct.pack('!B', capabilities)
-    return body_data
-```
+## 网页授权接口
 
-关于 `能力标志` 请参考 `附录A：Capabilities（能力标志）系统`
+HTTP 请求/响应为 JSON，接口不开放 CORS；非本机明文 HTTP 拒绝授权。正常状态 200，注册成功 201；无有效登录 401、权限/CSRF/Origin 拒绝 403、无效输入 400、并发版本冲突 409、频率超限 429、备份暂时不可写 503。部分错误返回纯文本，客户端应先检查 HTTP 状态并兼容 JSON `error` 和纯文本。
 
-#### 4.2 握手响应 (HANDSHAKE_RESPONSE = 0x02)
+|方法与路径|请求与响应|
+|---|---|
+|GET /api/status|公开名称、心跳、容量、房间成员及游戏人数；不返回 IP、token 或私密房间资料|
+|POST /api/profile|节点访问密码 `{"password":"..."}`；开放领取或已有账号 Cookie 可传 `{}`；返回 `code,profile,fingerprint`|
+|POST /api/account/enroll|开放注册时传 `{}`，返回 `account,nonce,message,iterations`|
+|POST /api/account/email-code|开放注册时传 `email,username,nonce`，绑定该次注册挑战，返回 `ticket,expires_in,retry_after`|
+|POST /api/account/register|`nonce,username,public_key,state,signature,copies,routing,routing_signature,proof`；要求邮箱时还须 `email_ticket,email_code`。校验初始身份与复制策略用户签名，返回 account。用户名为 3–32 位 ASCII 字母/数字/下划线/连字符，大小写不区分查重。完整生成方法参照 `/accounts.js`|
+|POST /api/account/challenge|`{"account":"用户名或完整ID"}`，路由取回 `nonce,message,record`，多匹配应使用完整 ID；不发送用户密码|
+|POST /api/account/login|`nonce,signature`，签名覆盖原始 message UTF-8；返回 `account,csrf` 及 HttpOnly/SameSite=Strict 的 account_session Cookie，HTTPS 下 Secure；会话 1 小时|
+|GET /api/account/me|需 Cookie，返回 `account,username,home,revision,backup,csrf`|
+|GET /api/account/record/{account}|可获取本节点允许访问的账号密文记录，不是账号枚举接口；不可当作密码保护的下载|
+|POST /api/account/backup|需 Cookie 和 X-Account-CSRF；`state,signature,routing,routing_signature`，revision 必须比当前新 1，返回 `ok,revision`|
+|POST /api/account/recover|`{"record":加密恢复记录}`，验证来源网络与版本；返回登录挑战，不免除签名验证|
+|POST /api/account/logout|`{}`，需 Cookie 和 X-Account-CSRF，清除会话|
 
-**​​格式​​：** 状态(1B) | 服务器版本(1B) | 支持的能力(1B)
+账号签名为 P-256 ECDSA/SHA-256，64 字节 r||s 的 Base64URL 无填充格式。加密为 PBKDF2-HMAC-SHA256（600000 次）+ AES-256-GCM，16 字节 salt、12 字节 iv，AAD 为 `account|revision` UTF-8。canonical JSON 递归按键排序、无空格、ASCII Unicode 转义。挑战签名必须覆盖返回的原始 message；先验证协议 p、Origin o、nonce r、账号 a 及期限等字段符合客户端授权，避免盲签。客户端验证证书、加密状态和路由签名；完整约束参照 accounts.py、accounts.js 与 account_replication.py。
 
-​​打包方法​​：
+个人接入码在不同设备可使用，其 `acct1` token 最长 7 天有效，泄露相当于泄露该授权。不得给第三方网站或日志。无需账号的匿名联机仍可使用联邦目录、跨入口找房与备用入口。
 
-```python
-def pack_handshake_response(status: int, server_version: int, 
-                           supported_capabilities: int) -> bytes:
-    return struct.pack('!BBB', status, server_version, supported_capabilities)
-```
+## 节点管理的权限与流程
 
-关于 `能力标志` 请参考 `附录A：Capabilities（能力标志）系统`
+`/admin` 是独立管理页面，不含公开管理数据。节点之间没有可远程调用的全网踢人命令；SSH 联邦身份不能调用本机 HTTP 管理接口。本地隔离只是该运营者拒收指定节点的心跳和联邦连接，其他运营者独立决策。
 
-#### 4.3 认证请求 (AUTH_REQUEST = 0x03)
+`POST /api/federation/block` 需要本机管理员会话、X-CSRF-Token、`id,blocked,confirmation,reason,password`。confirmation 必须等于完整目标 ID，reason 去除两端空白后 8–300 字，password 重新验证本机管理员。拒绝自己/未知目标、未确认输入和错误密码；重复状态返回 409。隔离后关闭已认证的该成员入站联邦会话、拒绝新联邦认证和新心跳；不撤销已发放的玩家 token，也不使本地以外的客户端停止连接该节点。
 
-**​​格式​​：** 认证类型(1B) | 凭证长度(2B) | 凭证数据(变长)
-
-​​打包方法​​：
-```python
-def pack_auth_request(auth_type: int, credential: bytes) -> bytes:
-    cred_length = len(credential)
-    body_data = struct.pack('!BH', auth_type, cred_length)
-    body_data += credential
-    return body_data
-```
-
-#### 4.4 节点注册 (REGISTER_NODE = 0x05)
-​​
-**格式​​：** 节点类型(1B) | 主机长度(1B) | 主机(变长) | 端口(2B) | 容量(2B) | 能力标志(1B)
-
-​打包方法​​：
-```python
-def pack_register_node(node_type: int, host: str, port: int, 
-                      capacity: int, capabilities: int) -> bytes:
-    host_bytes = host.encode('utf-8')
-    body_data = struct.pack('!B', node_type)
-    body_data += struct.pack('!B', len(host_bytes))
-    body_data += host_bytes
-    body_data += struct.pack('!HHB', port, capacity, capabilities)
-    return body_data
-```
-
-关于 `能力标志` 请参考 `附录A：Capabilities（能力标志）系统`
-
-#### 4.5 心跳包 (HEARTBEAT = 0x07)
-​
-**​格式​​：** 时间戳(8B)
-
-​打包方法​​：
-
-```python
-def pack_heartbeat(timestamp: int) -> bytes:
-    return struct.pack('!Q', timestamp)
-```
-
-#### 4.6 状态更新 (STATUS_UPDATE = 0x08)
-
-​​**格式​​：** 当前负载(2B) | 连接数(2B) | 状态标志(1B)
-
-​​打包方法​​：
-```python
-def pack_status_update(current_load: int, connections: int, 
-                     status_flags: int) -> bytes:
-    return struct.pack('!HHB', current_load, connections, status_flags)
-```
-
-#### 4.7 断开连接 (DISCONNECT = 0x09)
-
-**​​格式​​：** 原因长度(2B) | 原因(变长)
-
-​​打包方法​​：
-```python
-def pack_disconnect(reason: str) -> bytes:
-    reason_bytes = reason.encode('utf-8')
-    body_data = struct.pack('!H', len(reason_bytes))
-    body_data += reason_bytes
-    return body_data
-```
-
-### 5. 响应格式标准
-
-#### 5.1 通用响应格式
-
-​**​格式​​：** 状态(1B) | 消息长度(2B) | 消息(变长) | 额外数据(变长)
-
-**​​状态码定义​​：**
-```python
-0x00：成功
-0x01：一般错误
-0x02：超时
-0x03：认证失败
-0x04：无效参数
-0x05：资源不足
-0x06：不支持的操作
-```
-
-### 6. 插件系统规范
-
-#### 6.1 插件事件类型 (PluginEventType)
-
-更多参考 `src/core/plugin/types.py`
-
-```python
-class PluginEventType(Enum):
-    """插件事件类型枚举"""
-    PLUGIN_LOAD = auto()              # 插件加载
-    PLUGIN_INIT = auto()              # 插件初始化
-    PLUGIN_ENABLE = auto()            # 插件启用
-    PLUGIN_DISABLE = auto()           # 插件禁用
-    PLUGIN_UNLOAD = auto()            # 插件卸载
-    PLUGIN_ERROR = auto()             # 插件错误
-    
-    NODE_START = auto()               # 节点启动
-    NODE_READY = auto()               # 节点就绪
-    NODE_STOP = auto()                # 节点停止
-    NODE_SHUTDOWN = auto()            # 节点关闭
-    
-    CONNECTION_ACCEPTED = auto()      # 连接接受
-    CONNECTION_HANDSHAKE = auto()     # 连接握手
-    CONNECTION_AUTHENTICATED = auto() # 连接认证
-    CONNECTION_READY = auto()         # 连接就绪
-    CONNECTION_DATA_RECEIVED = auto() # 数据接收
-    CONNECTION_DATA_SENT = auto()     # 数据发送
-    CONNECTION_CLOSED = auto()        # 连接关闭
-    CONNECTION_ERROR = auto()         # 连接错误
-    
-    PACKET_RECEIVED = auto()          # 数据包接收
-    PACKET_PROCESSED = auto()         # 数据包处理
-    PACKET_SENT = auto()              # 数据包发送
-    
-    CUSTOM_EVENT = auto()             # 自定义事件
-```
-
-#### 6.2 插件基类规范
-
-更多参考 `src/core/plugin/base.py`
-
-```python
-class PluginBase(ABC):
-    """插件基类规范"""
-    
-    # 元数据（必须定义）
-    PLUGIN_NAME = "Unnamed Plugin"
-    PLUGIN_VERSION = "1.0.0"
-    PLUGIN_DESCRIPTION = "No description provided"
-    PLUGIN_AUTHOR = "Unknown"
-    PLUGIN_NODE_TYPES = [NodeType.ALL]  # 支持的节点类型
-    PLUGIN_PRIORITY = PluginPriority.NORMAL
-    PLUGIN_DEPENDENCIES = []  # 依赖的插件ID
-    
-    @abc.abstractmethod
-    async def handle_event(self, event: PluginEvent) -> Optional[Any]:
-        """处理事件"""
-        pass
-    
-    @abc.abstractmethod
-    async def execute(self, context: Dict) -> Any:
-        """执行插件功能"""
-        pass
-```
-
-### 7. 编码规范
-
-#### 7.1 命名规范
-
-```python
-​​类名​​：使用驼峰命名法（如 PacketHandler）
-​​方法名​​：使用蛇形命名法（如 parse_packet）
-​​常量​​：使用大写字母和下划线（如 MAX_CONNECTIONS）
-​​枚举值​​：使用大写字母和下划线（如 HANDSHAKE_REQUEST）
-```
-
-#### 7.2 日志规范
-
-```python
-# 日志格式
-LOG_FORMAT = '%(asctime)s - [%(processName)s] %(name)s - %(levelname)s - %(message)s'
-
-# 日志级别
-LOG_LEVEL = logging.INFO
-
-# 日志字段
-# - asctime: 时间戳
-# - processName: 进程名称
-# - name: 日志器名称
-# - levelname: 日志级别
-# - message: 日志消息
-```
-
-#### 7.3 错误处理规范
-```python
-try:
-    # 可能出错的操作
-    result = await some_operation()
-except SpecificException as e:
-    logger.error(f"操作失败: {e}")
-    # 返回错误响应
-    return create_error_response(0x01, f"操作失败: {e}")
-except Exception as e:
-    logger.exception("未预期的错误")
-    # 返回通用错误响应
-    return create_error_response(0x01, "内部错误")
-```
-
-#### 7.4 类型注解规范
-```python
-def function_name(param: Type) -> ReturnType:
-    """函数说明
-    
-    Args:
-        param: 参数说明
-        
-    Returns:
-        返回值说明
-        
-    Raises:
-        ExceptionType: 异常说明
-    """
-    pass
-```
-
-### 8. 性能与安全
-
-#### 8.1 性能优化
-
-* 使用数据缓冲减少系统调用
-* 合理设置超时时间
-* 使用连接池管理资源
-* 禁止阻塞操作
-
-#### 8.2 安全考虑
-
-* 所有通信使用认证机制
-* 敏感数据加密传输
-* 实施速率限制防止滥用
-* 定期更新认证密钥
-
-### 9. 版本管理
-
-#### 9.1 协议版本
-
-* 主版本​​：不兼容的协议更改
-* ​​次版本​​：向后兼容的功能性新增
-* 修订版本​​：问题修复
-
-#### 9.2 向后兼容
-
-* 新版本协议必须支持旧版本客户端
-* 废弃的功能需要保留至少两个版本周期
-* 提供版本协商机制
-
-## 附录A：Capabilities（能力标志）系统
-
-​**​附录A**​​ apabilities（能力标志）是一个位掩码系统，用于在客户端和服务器之间协商支持的功能。它允许：
-
-* 功能协商​​：客户端和服务器(指Master、Worker节点)可以协商共同支持的功能
-* ​版本兼容性​​：不同版本的实现可以互操作
-* ​渐进式增强​​：新功能可以逐步添加
-* ​明确的特性检测​​：可以准确检测对方支持的功能
-* ​优雅降级​​：不支持的功能可以有回退方案
-
-### 1. Capabilities 位掩码定义
-
-```python
-class Capabilities(IntFlag):
-    """能力标志位掩码定义"""
-    
-    # 基础功能
-    BASIC_PROTOCOL = 0x0001      # 基础协议支持
-    AUTHENTICATION = 0x0002      # 认证支持
-    HEARTBEAT = 0x0004           # 心跳机制支持
-    
-    # 高级功能
-    COMPRESSION = 0x0008         # 数据压缩支持
-    ENCRYPTION = 0x0010          # 数据加密支持
-    MULTI_STREAM = 0x0020        # 多流支持
-    
-    # 节点管理功能
-    NODE_DISCOVERY = 0x0040      # 节点发现
-    LOAD_BALANCING = 0x0080      # 负载均衡
-    FAILOVER = 0x0100            # 故障转移
-    
-    # 数据特性
-    BINARY_DATA = 0x0200         # 二进制数据传输
-    LARGE_PACKETS = 0x0400       # 大数据包支持
-    STREAMING = 0x0800           # 流式数据传输
-    
-    # 监控和诊断
-    METRICS = 0x1000             # 性能指标收集
-    DIAGNOSTICS = 0x2000         # 诊断功能
-    LOGGING = 0x4000             # 远程日志
-    
-    # 预留位
-    RESERVED_1 = 0x8000          # 预留位1
-    RESERVED_2 = 0x10000         # 预留位2
-    
-    # 组合能力
-    STANDARD_CAPABILITIES = BASIC_PROTOCOL | AUTHENTICATION | HEARTBEAT
-    ADVANCED_CAPABILITIES = STANDARD_CAPABILITIES | COMPRESSION | ENCRYPTION
-    ENTERPRISE_CAPABILITIES = ADVANCED_CAPABILITIES | MULTI_STREAM | LOAD_BALANCING | FAILOVER
-```
-
-### 2. Capabilities 协商流程
-
-#### 2.2 握手阶段的能力交换
-```python
-async def perform_handshake(self):
-    """执行握手和能力协商"""
-    # 客户端发送能力标志
-    client_capabilities = (
-        Capabilities.BASIC_PROTOCOL |
-        Capabilities.AUTHENTICATION |
-        Capabilities.HEARTBEAT |
-        Capabilities.COMPRESSION
-    )
-    
-    handshake_data = self.pack_handshake_request(
-        version=1,
-        protocol_version=1,
-        identifier=self.worker_id,
-        capabilities=client_capabilities
-    )
-    
-    await self.send_packet(PacketType.HANDSHAKE_REQUEST, handshake_data)
-    
-    # 接收服务器响应
-    response = await self.receive_packet(PacketType.HANDSHAKE_RESPONSE)
-    server_capabilities = response['capabilities']
-    
-    # 协商共同支持的能力
-    negotiated_capabilities = client_capabilities & server_capabilities
-    self.logger.info(f"协商后的能力: {negotiated_capabilities}")
-    
-    return negotiated_capabilities
-```
-
-#### 2.2 能力检查方法
-```python
-def check_capability(self, capability: Capabilities) -> bool:
-    """检查是否支持特定能力"""
-    return (self.negotiated_capabilities & capability) == capability
-
-def require_capability(self, capability: Capabilities):
-    """要求特定能力，如果不支持则抛出异常"""
-    if not self.check_capability(capability):
-        raise CapabilityNotSupportedError(
-            f"所需能力不支持: {capability.name}, "
-            f"当前能力: {self.negotiated_capabilities}"
-        )
-```
-
-### 3. 能力相关的数据包格式
-
-#### 3.1 握手请求中的能力字段
-
-​​格式​​：版本(1B) | 协议版本(1B) | ID长度(1B) | ID(变长) | **能力标志(4B)**
-```python
-def pack_handshake_request(version: int, protocol_version: int, 
-                          identifier: str, capabilities: int) -> bytes:
-    """打包握手请求（包含能力标志）"""
-    identifier_bytes = identifier.encode('utf-8')
-    body_data = struct.pack('!BBB', version, protocol_version, len(identifier_bytes))
-    body_data += identifier_bytes
-    body_data += struct.pack('!I', capabilities)  # 4字节能力标志
-    return body_data
-
-def unpack_handshake_request(data: bytes) -> tuple:
-    """解包握手请求（包含能力标志）"""
-    version, protocol_version, id_length = struct.unpack('!BBB', data[:3])
-    identifier = data[3:3+id_length].decode('utf-8')
-    capabilities = struct.unpack('!I', data[3+id_length:7+id_length])[0]
-    return version, protocol_version, identifier, capabilities
-```
-
-#### 3.2 握手响应中的能力字段
-
-​​格式​​：状态(1B) | 服务器版本(1B) | **支持的能力(4B)**
-
-```python
-def pack_handshake_response(status: int, server_version: int, 
-                           supported_capabilities: int) -> bytes:
-    """打包握手响应（包含能力标志）"""
-    return struct.pack('!BBI', status, server_version, supported_capabilities)
-
-def unpack_handshake_response(data: bytes) -> tuple:
-    """解包握手响应（包含能力标志）"""
-    return struct.unpack('!BBI', data)
-```
-
-### 4. 能力使用示例
-
-#### 4.1 基于能力的路由
-
-```python
-async def handle_packet(self, packet_type: int, data: bytes):
-    """根据能力处理数据包"""
-    if packet_type == PacketType.REQUEST_NODE:
-        if self.check_capability(Capabilities.LOAD_BALANCING):
-            await self.handle_load_balanced_request(data)
-        else:
-            await self.handle_basic_request(data)
-    
-    elif packet_type == PacketType.DATA_TRANSFER:
-        if self.check_capability(Capabilities.COMPRESSION):
-            data = self.decompress_data(data)
-        if self.check_capability(Capabilities.ENCRYPTION):
-            data = self.decrypt_data(data)
-        
-        await self.process_data(data)
-```
-
-#### 4.2 能力依赖检查
-```python
-class CompressionPlugin(PluginBase):
-    """压缩插件（需要压缩能力）"""
-    
-    async def handle_event(self, event: PluginEvent):
-        if event.event_type == PluginEventType.DATA_SENDING:
-            # 检查压缩能力
-            if not self.plugin_manager.check_capability(Capabilities.COMPRESSION):
-                return event.data  # 不支持压缩，直接返回原数据
-            
-            # 支持压缩，进行压缩处理
-            compressed_data = self.compress_data(event.data)
-            return compressed_data
-```
-
-### 5. 能力版本管理
-
-#### 5.1 能力与版本映射
-
-```python
-CAPABILITY_VERSIONS = {
-    # 能力标志: 引入版本
-    Capabilities.BASIC_PROTOCOL: "1.0.0",
-    Capabilities.AUTHENTICATION: "1.0.0",
-    Capabilities.HEARTBEAT: "1.1.0",
-    Capabilities.COMPRESSION: "1.2.0",
-    Capabilities.ENCRYPTION: "1.3.0",
-    Capabilities.MULTI_STREAM: "2.0.0",
-    Capabilities.LOAD_BALANCING: "2.1.0",
-}
-
-def get_capabilities_for_version(version: str) -> int:
-    """获取指定版本支持的能力"""
-    capabilities = 0
-    for cap, intro_version in CAPABILITY_VERSIONS.items():
-        if version >= intro_version:
-            capabilities |= cap
-    return capabilities
-```
-
-#### 5.2 向后兼容性处理
-```python
-async def handle_legacy_client(self, client_capabilities: int):
-    """处理旧版本客户端"""
-    # 获取当前服务器支持的所有能力
-    server_capabilities = self.get_server_capabilities()
-    
-    # 过滤掉客户端不支持的能力
-    compatible_capabilities = server_capabilities & client_capabilities
-    
-    # 对于不支持的能力，使用回退方案
-    if not (compatible_capabilities & Capabilities.COMPRESSION):
-        self.logger.warning("客户端不支持压缩，使用未压缩数据传输")
-        self.disable_compression()
-    
-    if not (compatible_capabilities & Capabilities.ENCRYPTION):
-        self.logger.warning("客户端不支持加密，使用明文传输")
-        self.disable_encryption()
-    
-    return compatible_capabilities
-```
-
-### 6. 能力测试和验证
-
-#### 6.1 能力测试套件
-```python
-class CapabilityTests(unittest.TestCase):
-    """能力测试用例"""
-    
-    def test_capability_negotiation(self):
-        """测试能力协商"""
-        client_caps = Capabilities.BASIC_PROTOCOL | Capabilities.AUTHENTICATION
-        server_caps = Capabilities.BASIC_PROTOCOL | Capabilities.HEARTBEAT
-        
-        negotiated = client_caps & server_caps
-        self.assertEqual(negotiated, Capabilities.BASIC_PROTOCOL)
-        self.assertTrue(negotiated & Capabilities.BASIC_PROTOCOL)
-        self.assertFalse(negotiated & Capabilities.AUTHENTICATION)
-    
-    def test_capability_checking(self):
-        """测试能力检查"""
-        caps = Capabilities.BASIC_PROTOCOL | Capabilities.AUTHENTICATION
-        
-        # 检查支持的能力
-        self.assertTrue(caps & Capabilities.BASIC_PROTOCOL)
-        self.assertTrue(caps & Capabilities.AUTHENTICATION)
-        
-        # 检查不支持的能力
-        self.assertFalse(caps & Capabilities.HEARTBEAT)
-        self.assertFalse(caps & Capabilities.COMPRESSION)
-```
-
-### 7. 错误处理
-
-#### 7.1 能力相关异常
-```python
-class CapabilityError(Exception):
-    """能力相关异常基类"""
-    pass
-
-class CapabilityNotSupportedError(CapabilityError):
-    """能力不支持异常"""
-    def __init__(self, capability, supported_capabilities):
-        self.capability = capability
-        self.supported_capabilities = supported_capabilities
-        message = f"能力不支持: {capability}, 支持的能力: {supported_capabilities}"
-        super().__init__(message)
-
-class CapabilityNegotiationFailedError(CapabilityError):
-    """能力协商失败异常"""
-    pass
-```
-
-#### 7.2 能力错误处理
-```python
-async def handle_capability_error(self, error: CapabilityError):
-    """处理能力错误"""
-    if isinstance(error, CapabilityNotSupportedError):
-        self.logger.warning(f"能力不支持: {error.capability}")
-        
-        # 发送能力错误事件
-        error_event = PluginEvent(
-            PluginEventType.CAPABILITY_ERROR,
-            self,
-            {
-                'error_type': 'capability_not_supported',
-                'capability': error.capability,
-                'supported_capabilities': error.supported_capabilities
-            }
-        )
-        await self.emit_event(error_event)
-        
-        # 根据错误类型采取不同的回退策略
-        if error.capability == Capabilities.COMPRESSION:
-            await self.fallback_to_uncompressed()
-        elif error.capability == Capabilities.ENCRYPTION:
-            await self.fallback_to_unencrypted()
-```
-
-
-## 附录B：标准格式字符说明
-
-​**​附录B**​​ 是指本技术文档的补充材料部分，专门解释 Python struct模块中使用的格式字符的含义和用法。这些格式字符用于定义二进
-制数据的结构和字节顺序。
-
-**格式字符表**
-
-|格式字符|类型|大小 (字节)|说明|
-|-|-|-|-|
-|B|unsigned char|1|无符号字节|
-|H|unsigned short|2|无符号短整型|
-|I|unsigned int|4|无符号整型|
-|Q|unsigned long long|8|无符号长长整型|
-|s|char[]|1 * n|字符数组（需指定长度）|
-|!|-|-|网络字节序（大端序）|
-
-**格式字符组合示例**
-
-|格式字符串|说明|示例数据|打包结果大小|
-|-|-|-|-|
-|!B|1字节无符号整数|255|1字节|
-|!H|2字节无符号短整数|65535|2字节|
-|!I|4字节无符号整数|4294967295|4字节|
-|!Q|8字节无符号长整数|18446744073709551615|8字节|
-|!BH|1字节整数 + 2字节短整数|(1, 65535)|3字节|
-|!HHB|2字节短整数 + 2字节短整数 + 1字节整数|(1, 2, 3)|5字节|
-|!BBB|3字节整数|(1, 2, 3)|3字节|
-|!5s|5字节字符串|b"hello"|5字节|
-
-**字节序说明**
-
-|字符|字节序|说明|
-|-|-|-|
-|!|网络字节序|大端序，用于网络通信|
-|>|大端序|与网络字节序相同|
-|<|小端序|与主机字节序相同（x86架构）|
-|=|本机字节序|使用本机字节序|
-
-使用示例
-```python
-import struct
-
-# 打包示例
-packed_data = struct.pack('!HHB', 8080, 100, 15)
-# 结果: b'\x1f\x90\x00d\x0f'
-
-# 解包示例
-port, capacity, capabilities = struct.unpack('!HHB', packed_data)
-# 结果: (8080, 100, 15)
-```
-
-## 附录C：常用工具方法
-
-​​**附录C​​** 提供了一组常用的工具方法，用于简化二进制数据的打包和解包操作。这些方法封装了 struct模块的功能，提供了更直观的接口。
-
-打包方法 更多参考 `src/network/protocol.py`
-
-```python
-def pack_header(packet_type: int, length: int) -> bytes:
-    """打包数据包头"""
-    return struct.pack('!BH', packet_type, length)
-
-def pack_byte(value: int) -> bytes:
-    """打包单个字节 (B)"""
-    return struct.pack('!B', value)
-
-def pack_ushort(value: int) -> bytes:
-    """打包无符号短整型 (H)"""
-    return struct.pack('!H', value)
-
-def pack_ulong(value: int) -> bytes:
-    """打包无符号长整型 (I)"""
-    return struct.pack('!I', value)
-
-def pack_ulonglong(value: int) -> bytes:
-    """打包无符号长长整型 (Q)"""
-    return struct.pack('!Q', value)
-
-def pack_byte_ushort(byte_value: int, ushort_value: int) -> bytes:
-    """打包字节+无符号短整型 (BH)"""
-    return struct.pack('!BH', byte_value, ushort_value)
-
-def pack_byte_byte(byte1: int, byte2: int) -> bytes:
-    """打包两个字节 (BB)"""
-    return struct.pack('!BB', byte1, byte2)
-
-def pack_byte_byte_byte(byte1: int, byte2: int, byte3: int) -> bytes:
-    """打包三个字节 (BBB)"""
-    return struct.pack('!BBB', byte1, byte2, byte3)
-...
-```
-
-解包方法 更多参考 `src/network/protocol.py`
-```python
-def unpack_header(data: bytes) -> tuple:
-    """解包数据包头"""
-    return struct.unpack('!BH', data)
-
-def unpack_byte(data: bytes) -> int:
-    """解包单个字节 (B)"""
-    return struct.unpack('!B', data)[0]
-
-def unpack_ushort(data: bytes) -> int:
-    """解包无符号短整型 (H)"""
-    return struct.unpack('!H', data)[0]
-
-def unpack_ulong(data: bytes) -> int:
-    """解包无符号长整型 (I)"""
-    return struct.unpack('!I', data)[0]
-
-def unpack_ulonglong(data: bytes) -> int:
-    """解包无符号长长整型 (Q)"""
-    return struct.unpack('!Q', data)[0]
-
-def unpack_byte_ushort(data: bytes) -> tuple:
-    """解包字节+无符号短整型 (BH)"""
-    return struct.unpack('!BH', data)
-
-def unpack_byte_byte(data: bytes) -> tuple:
-    """解包两个字节 (BB)"""
-    return struct.unpack('!BB', data)
-
-def unpack_byte_byte_byte(data: bytes) -> tuple:
-    """解包三个字节 (BBB)"""
-    return struct.unpack('!BBB', data)
-...
-```
-
-使用示例
-```python
-# 使用工具方法打包数据
-port = 8080
-capacity = 100
-capabilities = 15
-
-packed_data = pack_hhb(port, capacity, capabilities)
-# 结果: b'\x1f\x90\x00d\x0f'
-
-# 使用工具方法解包数据
-port_unpacked, capacity_unpacked, capabilities_unpacked = unpack_hhb(packed_data)
-# 结果: (8080, 100, 15)
-```
-
-## 术语表
-
-* ​**​大端序 (Big-Endian)​​：** 高位字节存储在低地址的字节序，网络通信标准字节序
-* **​​小端序 (Little-Endian)​​：** 低位字节存储在低地址的字节序，x86架构主机字节序
-* **​​数据包 (Packet)​​：** 网络通信中的基本数据传输单位
-* **​​握手 (Handshake)​​：** 连接建立初期的协议协商过程
-* ​**​认证 (Authentication)​​：** 验证身份的过程
-* ​**​心跳 (Heartbeat)​​：** 定期发送的小数据包，用于维持连接和检测存活状态
-* **​​插件 (Plugin)​​：** 可扩展系统功能的模块化组件
-* **​​节点 (Node)​​：** 网络中的一个参与实体，可以是服务器或客户端
-
-## 常见问题解答
-
-**Q: 为什么使用网络字节序（大端序）？**
-
-A: 网络字节序是网络通信的标准字节序，确保不同架构的设备能够正确解析数据。
-
-**Q: 如何处理变长数据？**
-
-A: 变长数据通常采用"长度+数据"的格式，先发送数据长度，再发送实际数据。
-
-**Q: 插件系统如何工作？**
-
-A: 插件系统通过事件驱动机制工作，插件可以监听特定事件并执行相应操作。
-
-**Q: 如何添加新的数据包类型？**
-
-A: 在 PacketType枚举中添加新类型，实现相应的打包和解包方法，并更新文档。
-
-**Q: 如何处理版本兼容性？**
-
-A: 协议设计应支持向后兼容，新版本协议应能处理旧版本客户端的请求。
-
-----
-
-文档版本：1.0.2​​
-
-​​最后更新：2025-10-17 15:57:00
-​
+恢复执行同一确认流程。操作原因/时间/目标仅写本机配置，最多 100 条，管理员页显示最近 20 条，不同步、不公开；服务器运营者可修改本机记录。泄露共享入网密钥者可能换身份重入，因此邀请只发给可信运营者；若密钥失守，需要可信运营者协调创建新网络、轮换凭据并重新发出邀请，不能声称单个 ID 隔离已消除风险。

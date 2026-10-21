@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Buggcraft · 联机节点</title>
+  <link rel="stylesheet" href="/portal.css"><link rel="stylesheet" href="/console.css"><script src="/portal.js" defer></script><script src="/accounts.js" defer></script>
+</head>
+<body>
+  <div class="ambient"></div>
+  <header class="shell topbar">
+    <a class="brand" href="/"><span class="mark">B<span>·</span></span><span>BUGGCRAFT<small>COMMUNITY NETWORK</small></span></a>
+    <nav><a class="desktop-nav" href="#network">节点网络</a><a class="developer-nav" href="/developers">启动器接入</a><button id="open-account" class="quiet">用户账号</button><a id="open-admin" class="quiet" href="/admin">节点管理 ↗</a></nav>
+  </header>
+  <main class="shell">
+    <section class="hero">
+      <div><div class="eyebrow"><span class="live-dot"></span><span id="health">正在获取节点状态</span></div>
+        <h1 id="node-name-heading">社区联机节点</h1>
+        <p class="intro">查看节点状态、获取启动器接入码，或阅读第三方启动器接入文档。</p>
+        <div class="hero-actions"><button id="open-connect" class="primary">获取启动器接入码 <span>↗</span></button><a class="text-link developer-link" href="/developers">启动器接入文档 ↗</a></div>
+      </div>
+      <div class="orbit" aria-label="节点网络示意">
+        <div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div>
+        <div class="orbit-line l1"></div><div class="orbit-line l2"></div><div class="orbit-line l3"></div>
+        <div class="planet p1"></div><div class="planet p2"></div><div class="planet p3"></div>
+        <div class="core"><span class="core-icon">⌘</span><span id="node-name">COMMUNITY NODE</span><small>YOUR WORLD, CONNECTED</small></div>
+        <span class="orbit-caption">INDEPENDENT NODES. SHARED CONNECTIONS.</span>
+      </div>
+    </section>
+    <section class="entry-strip" aria-label="账号与启动器接入">
+      <div><span class="eyebrow muted">LAUNCHER API</span><h2>其他启动器接入</h2>
+        <p>通过本地连接组件接入房间，无需自行实现打洞。JSON-RPC 接口、各语言示例和账号授权流程均在接入文档中。</p>
+      </div>
+      <a class="secondary" href="/developers">查看接入文档 <span aria-hidden="true">↗</span></a>
+    </section>
+    <section class="friend-entry" aria-label="好友使用说明"><strong>在启动器添加好友</strong><p>登录后领取个人接入码，用朋友的用户名发送申请。对方同意后，可查看在线状态、邀请一起玩。双方可以使用同一联邦的不同节点；匿名接入不开放好友。</p></section>
+    <section class="metrics" aria-label="实时指标">
+      <article><span class="metric-label">本机房间</span><strong id="rooms">—</strong><small id="room-limit">等待同步</small></article>
+      <article><span class="metric-label">房间在线成员</span><strong id="players">—</strong><small>房主与访客，不含目录和心跳</small></article>
+      <article><span class="metric-label">游戏内玩家</span><strong id="game-players">—</strong><small id="game-coverage">由房主上报，未知不计为零</small></article>
+      <article><span class="metric-label">连续运行</span><strong id="uptime">—</strong><small>每 5 秒自动刷新</small></article>
+    </section>
+    <section class="capacity-summary" aria-label="节点带宽与接纳能力">
+      <div><span class="metric-label">带宽预算 · MB/s</span><strong id="capacity-bandwidth">未配置</strong></div>
+      <div><span class="metric-label">建议中转访客上限</span><strong id="capacity-visitors">待设置带宽</strong></div>
+      <div><span class="metric-label">当前转发速率 · MB/s</span><strong id="capacity-rate">—</strong></div>
+      <p id="capacity-explanation">预留带宽应对首次进入、区块加载与线路波动。</p>
+    </section>
+    <section id="network" class="network-section">
+      <div class="section-heading"><div><div class="eyebrow muted">THE NETWORK</div><h2>节点网络</h2></div><span class="badge" id="network-count">同步中</span></div>
+      <div id="network-list" class="network-list"></div>
+      <div class="network-note"><span>↳</span><div><p id="network-mode">正在获取节点模式</p><p>联邦的跨节点找房和备用入口支持匿名使用，无需注册账号。各节点独立探测并交换签名心跳，无需主节点。</p></div></div>
+    </section>
+    <section class="details"><div><span class="eyebrow muted">NODE IDENTITY</span><h3>核对节点身份</h3><p>通过可信渠道获取接入码。接入码包含节点公钥，启动器会在每次连接时核对；可向管理员核实右侧指纹。</p></div><div class="identity"><span>SSH 公钥指纹</span><code id="fingerprint">—</code><span id="node-id">—</span></div></section>
+    <footer><span>BUGGCRAFT <span class="muted">/ 联机，由你和朋友一起搭建。</span></span><a href="/developers">开发者接入 ↗</a></footer>
+  </main>
+  <dialog id="connect-dialog"><form id="connect-form">
+    <div class="dialog-head"><span class="eyebrow">LET'S CONNECT</span><button type="button" class="close" data-close="connect-dialog" aria-label="关闭">×</button></div>
+    <h2>添加节点</h2><p>复制接入码，在启动器「联机节点」中选择添加节点并粘贴。</p>
+    <label id="access-label">节点访问密码<input id="access-password" type="password" autocomplete="off" maxlength="256" placeholder="向节点管理员获取"></label>
+    <button class="primary wide" type="submit">获取节点添加码 ↗</button>
+    <div id="connect-result" hidden><label>玩家添加码<textarea id="player-code" readonly rows="4"></textarea></label><button id="copy-code" class="secondary wide" type="button">复制添加码</button><small>此码包含联机访问凭据，请分享给可信的朋友。</small></div>
+    <p class="feedback" id="connect-feedback" role="status"></p>
+  </form></dialog>
+  <dialog id="account-dialog">
+    <div class="dialog-head"><span class="eyebrow">YOUR ACCOUNT</span><button type="button" class="close" data-close="account-dialog" aria-label="关闭">×</button></div>
+    <form id="account-login"><h2>账号登录</h2><p>登录后领取个人接入码，即可在启动器使用好友。匿名联机无需账号；这里不是 Microsoft 或 Minecraft 游戏账号登录。</p><label>用户名<input id="account-id" autocomplete="username" maxlength="65" placeholder="输入注册时的英文用户名" required></label>
+      <label>账号密码<input id="account-password" type="password" autocomplete="current-password" minlength="12" maxlength="256" required></label><button class="primary wide" type="submit">登录此节点 →</button><button id="show-register" class="quiet wide" type="button" hidden>还没有账号？注册新身份</button></form>
+    <form id="account-register" hidden><button id="back-to-login" class="quiet" type="button">← 返回登录</button><h2>注册账号</h2><label>用户名（3–32 个英文字母、数字、_ 或 -）<input id="register-name" pattern="[A-Za-z0-9_\-]{3,32}" maxlength="32" autocomplete="username" required></label>
+      <div id="email-registration-fields" hidden><label>邮箱<input id="register-email" type="email" autocomplete="email" maxlength="254"></label><div class="email-code-row"><label>邮箱验证码<input id="register-email-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label><button id="send-email-code" type="button" class="secondary">发送验证码</button></div></div>
+      <label>密码（至少 12 个字符，请使用独立的长密码）<input id="register-password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label>
+      <label>确认密码<input id="register-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label>
+      <label>额外加密备份节点<select id="register-copies"><option value="0">不备份 · 源节点丢失需恢复文件</option><option value="1">1 个备份节点</option><option value="2">2 个备份节点</option><option value="3">3 个备份节点</option><option value="4">4 个备份节点</option><option value="8">8 个备份节点</option></select></label>
+      <p class="warning">用户名、公开身份和签名后的好友关系会同步到同一联邦，用于跨节点登录和好友功能。密码不发送给服务器；邮箱随个人资料加密。额外备份只决定哪些节点长期保存加密资料，节点管理员可能复制密文并猜测弱密码。没有任何副本可用时，密码登录需要恢复文件；已领取且未过期的个人码仍可使用。</p>
+      <button class="primary wide" type="submit">注册并保存账号恢复文件</button></form>
+    <div id="account-panel" hidden><div class="identity"><span>保存完整账号 ID，用于重名登录和好友身份绑定</span><code id="account-current"></code></div>
+      <p class="account-flow">换设备：在同一联邦的可信节点用用户名登录，领取个人接入码，粘贴到启动器。节点会向源节点或在线副本取回加密资料。个人码最长有效 7 天，持有者能使用你的身份，请勿转发。</p>
+      <p id="account-home"></p><p id="account-backup-status" role="status"></p><button id="account-connect" class="primary wide">领取个人启动器接入码</button>
+      <label>额外加密备份节点<select id="account-copies"><option value="0">不备份 · 仅注册节点登录</option><option value="1">1 个备份节点</option><option value="2">2 个备份节点</option><option value="3">3 个备份节点</option><option value="4">4 个备份节点</option><option value="5">5 个备份节点</option><option value="6">6 个备份节点</option><option value="7">7 个备份节点</option><option value="8">8 个备份节点</option></select></label><small>减少备份不能收回其他管理员已复制的数据；关闭备份需要注册节点在线。设置将在下次加密保存时生效。</small>
+      <label>显示昵称<input id="account-nickname" maxlength="80"></label><label>私密备忘<textarea id="account-notes" rows="3" maxlength="800"></textarea></label>
+      <button id="account-save" class="secondary wide">加密保存并同步个人设置</button><button id="account-export" class="secondary wide">下载加密账号恢复文件</button>
+      <button id="account-logout" class="quiet wide">退出账号</button></div>
+    <div class="divider"></div><label>从自己保存的恢复文件导入<input id="account-import" type="file" accept="application/json,.json"></label>
+    <small>恢复文件保存加密身份，不包含明文密码。忘记密码无法代为解密。只能在信任的节点网页输入密码，节点运营者可以修改网页。</small><p class="feedback" id="account-feedback" role="status"></p>
+  </dialog>
+</body></html>
