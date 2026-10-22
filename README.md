@@ -27,6 +27,8 @@ Buggcraft 联机节点为启动器提供房间发现、联邦目录、好友与�
 
 推荐下载包含运行环境的 [发行包](https://github.com/vdjango/minecraft-tunnel/releases)。无需安装 Python 或手工下载依赖；解压后保留完整目录。
 
+开发包在 [GitHub Actions → Server regression](https://github.com/vdjango/minecraft-tunnel/actions/workflows/server-tests.yml)：选择绿色通过的构建，在 **Artifacts** 下载 `buggcraft-node-windows-x64-…` 或 `buggcraft-node-linux-x64-…`。Actions 产物保留 30 天，下载需要登录 GitHub；公开 Release 的下载不需要登录。
+
 | 系统 | 运行方式 | 持久化数据 |
 |---|---|---|
 | Windows x64 | 双击 `buggcraft-node.exe`，首次自动打开浏览器向导。 | 程序旁的 `data/` |

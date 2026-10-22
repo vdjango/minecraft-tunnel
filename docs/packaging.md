@@ -37,4 +37,8 @@ Linux 将路径替换为 `dist/buggcraft-node/buggcraft-node`。验收会把包�
 
 ## 发布流程
 
-推送形如 `v1.0.0` 的标签后，CI 会在 Windows 和 Ubuntu 构建并运行打包验收，然后上传两个平台的发行包和校验文件。只有两个矩阵任务都通过，发布任务才会创建 GitHub Release。签名接入后，应在发布任务中增加签名验证，并把 `build-info.json` 的 `signed` 更新为实际结果；没有签名凭证时不得自动伪造签名状态。
+推送变更或在 [Server regression](https://github.com/vdjango/minecraft-tunnel/actions/workflows/server-tests.yml) 点击 **Run workflow** 后，CI 在 Windows 和 Ubuntu 分别构建并运行打包验收。打开构建详情，在 **Artifacts** 下载对应系统的压缩包及 `.sha256` 文件；开发产物保留 30 天，下载需要登录 GitHub。许可证和依赖说明已包含在发行包内，不需要单独拼接文件。
+
+推送形如 `v1.0.0` 的新标签后，只有服务端测试、浏览器向导、systemd 和两个平台的打包验收全部通过，发布任务才会创建 GitHub Release **草稿**。维护者完成目标设备验收、核对签名状态后点击 **Publish release**；公开 Release 的下载不需要登录 GitHub。不应重用或移动已发布的标签。
+
+签名接入后，应在发布任务中增加签名验证，并把 `build-info.json` 的 `signed` 更新为实际结果；没有签名凭证时不得自动伪造签名状态。
