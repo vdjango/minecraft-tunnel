@@ -106,8 +106,8 @@ class VerificationMail:
         key = email.strip().casefold()
         async with self.lock:
             now = time.monotonic()
-            old = self.recent.get(key, 0)
-            if now - old < 60:
+            old = self.recent.get(key)
+            if old is not None and now - old < 60:
                 raise ValueError('验证码已发送，请稍后再试。')
             self.recent[key] = now
             self.recent = {k: t for k, t in self.recent.items() if now - t < 3600}

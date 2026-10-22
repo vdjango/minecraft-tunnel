@@ -51,6 +51,23 @@ class MailTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             self.mail.verify(expired, '654321', 'Alice', 'nonce')
 
+    async def test_first_request_after_boot_is_allowed_but_real_resends_wait_a_minute(self):
+        messages = []
+        with patch.object(self.mail, '_send', side_effect=messages.append), \
+                patch('tunnel.mail.time') as clock, \
+                patch('tunnel.mail.secrets.randbelow', return_value=123456):
+            clock.monotonic.return_value = 0
+            ticket = await self.mail.issue('new@example.com', 'Alice', 'nonce')
+            self.assertEqual(self.mail.verify(ticket, '123456', 'Alice', 'nonce'), 'new@example.com')
+            clock.monotonic.return_value = 59
+            with self.assertRaisesRegex(ValueError, '验证码已发送'):
+                await self.mail.issue('NEW@example.com', 'Alice', 'nonce')
+            self.assertEqual(len(messages), 1)
+            clock.monotonic.return_value = 60
+            renewed = await self.mail.issue('new@example.com', 'Alice', 'new-nonce')
+            self.assertEqual(len(messages), 2)
+            self.assertEqual(self.mail.verify(renewed, '123456', 'Alice', 'new-nonce'), 'new@example.com')
+
     async def test_test_message_has_no_usable_code_and_delivery_failure_has_no_secret(self):
         messages = []
         with patch.object(self.mail, '_send', side_effect=messages.append):
