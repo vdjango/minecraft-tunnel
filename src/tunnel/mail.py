@@ -5,6 +5,7 @@ from email.utils import formataddr
 import hashlib
 import html
 import json
+import logging
 import re
 import secrets
 import smtplib
@@ -13,6 +14,10 @@ import time
 from pathlib import Path
 
 from .portal import atomic_json
+
+
+class MailDeliveryError(ValueError):
+    """Delivery failure with a safe message suitable for the registration page."""
 
 
 class VerificationMail:
@@ -27,6 +32,7 @@ class VerificationMail:
             self.settings.update(value)
         self.pending, self.recent = {}, {}
         self.lock = asyncio.Lock()
+        self.delivery_slots = asyncio.Semaphore(2)
 
     @property
     def enabled(self):
@@ -80,10 +86,21 @@ class VerificationMail:
             message.clear_content()
             message.set_content('发信测试成功。此邮件不包含有效验证码。\n\n' + self.node_name)
             message.add_alternative(f'<html><body style="background:#f2f0f7;font-family:Arial,sans-serif;padding:32px"><div style="max-width:520px;margin:auto;background:#fff;border-radius:16px;padding:32px"><p style="color:#7956b8">BUGGCRAFT · NODE</p><h1>邮件服务已连接</h1><p>{safe_name} 已成功发送测试邮件。</p><p style="color:#756e80">这是一封发信测试邮件，没有有效验证码，无需操作。</p></div></body></html>', subtype='html')
+        if self.delivery_slots.locked():
+            raise MailDeliveryError('发信服务繁忙，请稍后重试。')
         try:
-            await asyncio.to_thread(self._send, message)
+            async with self.delivery_slots, asyncio.timeout(30):
+                await asyncio.to_thread(self._send, message)
+        except smtplib.SMTPAuthenticationError as exc:
+            logging.getLogger(__name__).warning('SMTP authentication rejected (code %s)', exc.smtp_code)
+            raise MailDeliveryError('节点发信账号验证失败，请联系管理员检查发件邮箱和 SMTP 授权码。') from None
+        except TimeoutError:
+            logging.getLogger(__name__).warning('SMTP delivery timed out')
+            raise MailDeliveryError('邮件服务连接超时，请稍后重新发送。') from None
         except (smtplib.SMTPException, OSError) as exc:
-            raise ValueError('邮件暂未发出，请检查发信配置或稍后重试。') from exc
+            logging.getLogger(__name__).warning('SMTP delivery failed (%s, code %s)',
+                                                type(exc).__name__, getattr(exc, 'smtp_code', None))
+            raise MailDeliveryError('邮件暂未发出，请稍后重试；持续失败请联系节点管理员。') from None
 
     def _send(self, message):
         if self.settings['port'] == 465:
@@ -108,14 +125,20 @@ class VerificationMail:
             now = time.monotonic()
             old = self.recent.get(key)
             if old is not None and now - old < 60:
-                raise ValueError('验证码已发送，请稍后再试。')
+                raise ValueError('验证码已发送或正在发送，请等待 60 秒后再试。')
             self.recent[key] = now
             self.recent = {k: t for k, t in self.recent.items() if now - t < 3600}
             if len(self.recent) > 256:
                 raise ValueError('请求过多，请稍后再试。')
         code = f'{secrets.randbelow(1000000):06d}'
         ticket = secrets.token_urlsafe(32)
-        await self.send(email.strip(), code)
+        try:
+            await self.send(email.strip(), code)
+        except Exception:
+            # A failed delivery must not pretend that a usable code was sent.
+            async with self.lock:
+                self.recent.pop(key, None)
+            raise
         self.pending[hashlib.sha256(ticket.encode()).hexdigest()] = {
             'code': hashlib.sha256(code.encode()).hexdigest(), 'email': key,
             'username': username.casefold(), 'nonce': nonce, 'expires': time.monotonic() + 600}

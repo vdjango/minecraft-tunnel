@@ -81,6 +81,48 @@ class GovernanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.post('/api/federation/block', json=self.action())).status, 401)
         self.assertFalse(self.a.blocked)
 
+    async def test_registration_steps_have_separate_limits_and_unknown_proxy_headers_are_ignored(self):
+        self.portal.state['registration_open'] = True
+        for _ in range(8):
+            self.assertEqual((await self.client.post('/api/account/enroll', json={})).status, 200)
+        response = await self.client.post('/api/account/enroll', json={}, headers={'X-Real-IP': '198.51.100.99'})
+        self.assertEqual(response.status, 429)
+        # Reaching enrollment's cap must not consume the administrator login cap.
+        await self.login()
+
+    async def test_configured_proxy_separates_users_and_malformed_headers_cannot_reset_limits(self):
+        self.portal.state.update(registration_open=True, trusted_proxy_ips=['127.0.0.1'])
+        for _ in range(8):
+            response = await self.client.post('/api/account/enroll', json={}, headers={'X-Real-IP': '198.51.100.1'})
+            self.assertEqual(response.status, 200)
+        self.assertEqual((await self.client.post('/api/account/enroll', json={}, headers={'X-Real-IP': '198.51.100.1'})).status, 429)
+        self.assertEqual((await self.client.post('/api/account/enroll', json={}, headers={'X-Real-IP': '198.51.100.2'})).status, 200)
+        for _ in range(8):
+            self.assertEqual((await self.client.post('/api/account/enroll', json={}, headers={'X-Real-IP': 'invalid'})).status, 200)
+        self.assertEqual((await self.client.post('/api/account/enroll', json={}, headers={'X-Real-IP': 'also-invalid'})).status, 429)
+
+    async def test_email_delivery_error_is_actionable_and_not_reported_as_sent(self):
+        from unittest.mock import patch
+        import smtplib
+        self.portal.state['registration_open'] = True
+        mail = self.portal.account_api.mail
+        mail.configure({'username': 'sender@example.com', 'password': 'private-smtp-secret'})
+        enrollment = await (await self.client.post('/api/account/enroll', json={})).json()
+        data = dict(nonce=enrollment['nonce'], email='user@example.com', username='Alice')
+        with patch.object(mail, '_send', side_effect=smtplib.SMTPAuthenticationError(535, b'private-smtp-secret')):
+            response = await self.client.post('/api/account/email-code', json=data)
+        self.assertEqual(response.status, 503)
+        self.assertIn('发信账号验证失败', await response.text())
+        self.assertNotIn('private-smtp-secret', await response.text())
+        self.assertFalse(mail.pending)
+        with patch.object(mail, '_send'):
+            response = await self.client.post('/api/account/email-code', json=data)
+        self.assertEqual(response.status, 200)
+        self.assertEqual((await response.json())['retry_after'], 60)
+        response = await self.client.post('/api/account/email-code', json=data)
+        self.assertEqual(response.status, 400)
+        self.assertIn('验证码已发送', await response.text())
+
     async def test_bridge_guide_uses_portable_program_and_marks_native_only_features(self):
         response = await self.client.get('/developers')
         self.assertEqual(response.status, 200)

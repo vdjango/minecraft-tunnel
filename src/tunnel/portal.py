@@ -5,6 +5,7 @@ from collections import OrderedDict, deque
 import hashlib
 import hmac
 import html
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -185,7 +186,18 @@ class Portal:
 
     def throttle(self, request):
         now = time.monotonic()
-        key = request.remote or 'unknown'
+        source = request.remote or 'unknown'
+        # Only explicitly configured proxies may supply a client address. A
+        # direct client cannot evade limits by inventing forwarding headers.
+        if source in self.state.get('trusted_proxy_ips', []):
+            forwarded = request.headers.get('X-Real-IP', '')
+            try:
+                source = str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                pass
+        # Enrollment, email, login challenges and login are separate operations;
+        # a normal registration must not exhaust its own subsequent login.
+        key = (source, request.path)
         calls = self.attempts.setdefault(key, deque())
         self.attempts.move_to_end(key)
         while len(self.attempts) > 2048:

@@ -79,6 +79,37 @@ class MailTests(unittest.IsolatedAsyncioTestCase):
                 await self.mail.send('user@example.com', '123456')
         self.assertNotIn('smtp-secret-123', str(caught.exception))
 
+    async def test_failed_delivery_does_not_create_ticket_or_block_successful_retry(self):
+        from tunnel.mail import MailDeliveryError
+        with patch.object(self.mail, '_send', side_effect=smtplib.SMTPAuthenticationError(535, b'smtp-secret-123')):
+            with self.assertLogs('tunnel.mail', level='WARNING') as logs:
+                with self.assertRaisesRegex(MailDeliveryError, '发信账号验证失败') as caught:
+                    await self.mail.issue('retry@example.com', 'Alice', 'nonce')
+        self.assertFalse(self.mail.pending)
+        self.assertNotIn('retry@example.com', self.mail.recent)
+        self.assertNotIn('smtp-secret-123', str(caught.exception))
+        self.assertNotIn('smtp-secret-123', ''.join(logs.output))
+        with patch.object(self.mail, '_send'), patch('tunnel.mail.secrets.randbelow', return_value=123456):
+            ticket = await self.mail.issue('retry@example.com', 'Alice', 'nonce')
+        self.assertEqual(self.mail.verify(ticket, '123456', 'Alice', 'nonce'), 'retry@example.com')
+
+    async def test_parallel_same_recipient_does_not_send_twice(self):
+        from unittest.mock import AsyncMock
+        started, finish = asyncio.Event(), asyncio.Event()
+        async def sending(*args):
+            started.set()
+            await finish.wait()
+        with patch.object(self.mail, 'send', new=AsyncMock(side_effect=sending)) as deliver:
+            first = asyncio.create_task(self.mail.issue('parallel@example.com', 'Alice', 'nonce'))
+            try:
+                await asyncio.wait_for(started.wait(), 3)
+                with self.assertRaisesRegex(ValueError, '验证码已发送'):
+                    await self.mail.issue('parallel@example.com', 'Alice', 'nonce')
+                self.assertEqual(deliver.await_count, 1)
+            finally:
+                finish.set()
+                await first
+
     def test_secret_is_persisted_but_excluded_from_settings_response(self):
         self.assertNotIn('password', self.mail.public_settings())
         self.assertNotIn('smtp-secret-123', json.dumps(self.mail.public_settings()))

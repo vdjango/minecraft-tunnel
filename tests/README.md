@@ -23,6 +23,7 @@ CI 在 Windows 和 Linux 上执行同一命令。失败通过实际异常、断�
 |`test_account_replication.py`|四节点实际 SSH 同步、目录与密文分离、副本数、非副本路由、故障补位、撤回副本、策略篡改、重名及重启恢复|
 |`test_portal_governance.py`|公开/受保护页面、CSRF、再次鉴权、本地隔离/恢复/审计、后台路由、SMTP 脱敏、同页协议和接入示例、错误公钥|
 |`test_mail.py`|验证码绑定/消费/过期/重放/限速、HTML 转义、敏感数据不进入邮件或错误、STARTTLS 后认证|
+|`test_registration_browser.py`|真实 HTTPS 网页的输入校验、慢发信等待状态、SMTP 拒绝提示与重试、重发倒计时、网络失败恢复、实际加密注册/恢复文件下载/登录/个人接入码；只替换 SMTP 发送，账号接口和加密均真实执行|
 |`test_peer_signaling_stun.py`|房间信令角色、跨房间隔离、坏帧、STUN IPv4/IPv6、畸形包和来源限流|
 |`test_peer_wire.py`|真实 SSH 信令与防冒用、拒绝目录身份信令、实际 UDP Binding 源端口/事务号验证|
 

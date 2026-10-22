@@ -16,16 +16,43 @@ function accountEntry(view='login') {
 }
 $('show-register').onclick=()=>accountEntry('register');
 $('back-to-login').onclick=()=>accountEntry();
+let mailBusy=false, mailRetryAt=0, mailTimer=null;
+function mailFeedback(message,state='pending') {
+  const el=$('email-code-feedback');el.textContent=message;el.dataset.state=state;
+}
+function renderMailButton() {
+  const remaining=Math.max(0,Math.ceil((mailRetryAt-Date.now())/1000));
+  const button=$('send-email-code');button.disabled=mailBusy || remaining>0;
+  button.textContent=mailBusy ? '正在发送…' : remaining>0 ? remaining+' 秒后重发' : '发送验证码';
+  button.setAttribute('aria-busy',String(mailBusy));
+  if(!mailBusy && remaining===0 && mailTimer) {clearInterval(mailTimer);mailTimer=null;}
+}
+for(const id of ['register-name','register-email']) $(id).addEventListener('input',()=>{
+  if(mailEnrollment) {
+    mailEnrollment=null;$('register-email-code').value='';
+    mailFeedback('用户名或邮箱已更改，请重新发送验证码。','error');
+  }
+});
 $('send-email-code').onclick=async()=>{
-  const button=$('send-email-code');button.disabled=true;
+  if(mailBusy || Date.now()<mailRetryAt) return;
+  const emailField=$('register-email'),nameField=$('register-name');
+  const email=emailField.value.trim(),username=nameField.value.trim();
+  nameField.value=username;emailField.value=email;
+  if(!nameField.reportValidity() || !emailField.reportValidity()) return;
+  mailBusy=true;mailEnrollment=null;renderMailButton();
+  emailField.readOnly=true;nameField.readOnly=true;
+  mailFeedback('正在连接邮件服务，请稍候…');$('account-feedback').textContent='';
   try {
     const enrollment=await api('/api/account/enroll',{});
-    const email=$('register-email').value.trim(),username=$('register-name').value;
-    const result=await api('/api/account/email-code',{nonce:enrollment.nonce,email,username});
+    const result=await api('/api/account/email-code',{nonce:enrollment.nonce,email,username},40000);
     mailEnrollment={...enrollment,email,username,ticket:result.ticket};
-    $('account-feedback').textContent='验证码已发送，10 分钟内有效。';
-    setTimeout(()=>{button.disabled=false;},60000);
-  }catch(e){feedback('account-feedback',e);button.disabled=false;}
+    mailRetryAt=Date.now()+result.retry_after*1000;
+    mailFeedback('验证码已发往 '+email+'，10 分钟内有效。未收到请检查垃圾邮件。','success');
+    if(mailTimer) clearInterval(mailTimer);
+    mailTimer=setInterval(renderMailButton,250);
+    if(!$('account-register').hidden) $('register-email-code').focus();
+  }catch(e){mailFeedback(e.message || String(e),'error');}
+  finally{mailBusy=false;emailField.readOnly=false;nameField.readOnly=false;renderMailButton();}
 };
 async function signBytes(key,bytes) { return bytes64(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,bytes)); }
 async function boxKey(password,salt) {
@@ -80,7 +107,10 @@ $('open-account').onclick=async()=>{
 };
 $('account-register').onsubmit=async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;
+  const originalLabel=button.textContent;button.textContent='正在创建账号…';button.setAttribute('aria-busy','true');
+  $('account-feedback').textContent='正在加密账号资料，请稍候…';
   try {
+    if(mailBusy) throw new Error('验证码正在发送，请稍候再注册。');
     const password=$('register-password').value;
     if(password!==$('register-confirm').value) throw new Error('两次密码不一致。');
     if(emailRequired && (!mailEnrollment || mailEnrollment.email!==$('register-email').value.trim() || mailEnrollment.username!==$('register-name').value)) throw new Error('请先发送并填写邮箱验证码。');
@@ -100,7 +130,7 @@ $('account-register').onsubmit=async event=>{
     $('register-password').value='';$('register-confirm').value='';
     await loginAccount();
     $('account-feedback').textContent='注册成功。以后使用用户名登录；请妥善保管密码和已下载的恢复文件。';
-  } catch(e) { feedback('account-feedback',e); } finally {button.disabled=false;}
+  } catch(e) { feedback('account-feedback',e); } finally {button.disabled=false;button.textContent=originalLabel;button.setAttribute('aria-busy','false');}
 };
 async function loginAccount() {
   const password=$('account-password').value;
@@ -117,7 +147,7 @@ async function loginAccount() {
   identityKey=unlocked.key;vault=unlocked.value;accountRecord=record;unlockedPassword=password;accountCSRF=result.csrf;launcherKey=await crypto.subtle.exportKey('jwk',pair.privateKey);
   $('account-password').value='';importedRecord=null;await showAccount();$('account-feedback').textContent='已登录。个人资料只在当前网页解密。';
 }
-$('account-login').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{await loginAccount();}catch(e){feedback('account-feedback',e);}finally{button.disabled=false;}};
+$('account-login').onsubmit=async event=>{event.preventDefault();const button=event.submitter,label=button.textContent;button.disabled=true;button.textContent='正在登录…';button.setAttribute('aria-busy','true');$('account-feedback').textContent='正在验证账号，请稍候…';try{await loginAccount();}catch(e){feedback('account-feedback',e);}finally{button.disabled=false;button.textContent=label;button.setAttribute('aria-busy','false');}};
 $('account-save').onclick=async()=>{
   const button=$('account-save');button.disabled=true;
   try {

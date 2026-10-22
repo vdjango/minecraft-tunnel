@@ -67,6 +67,12 @@ class AccountAPI:
                                       account=account, iterations=600000))
 
     async def register(self, request):
+        try:
+            return await self._register(request)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from None
+
+    async def _register(self, request):
         if not self.portal.state.get('registration_open', False):
             raise web.HTTPForbidden(text='本节点暂未开放注册。')
         self.portal.throttle(request)
@@ -100,7 +106,13 @@ class AccountAPI:
         # Email entry lasts longer than a signature challenge; signing is still
         # one-use and bound to this registration's random account ID.
         challenge['expires'] = time.monotonic() + 600
-        ticket = await self.mail.issue(data.get('email'), data.get('username'), data['nonce'])
+        from .mail import MailDeliveryError
+        try:
+            ticket = await self.mail.issue(data.get('email'), data.get('username'), data['nonce'])
+        except MailDeliveryError as exc:
+            raise web.HTTPServiceUnavailable(text=str(exc)) from None
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from None
         return web.json_response({'ticket': ticket, 'expires_in': 600, 'retry_after': 60})
 
     async def mail_settings(self, request):
