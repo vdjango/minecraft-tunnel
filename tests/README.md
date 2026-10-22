@@ -42,6 +42,10 @@ python -X utf8 -m unittest -v tests.test_peer_transport tests.test_bridge_protoc
 
 ## 网页与部署验收
 
+`test_deployed_nodes.py` 是两台已部署节点的可选验收用例。默认跳过；设置 `BUGGCRAFT_TEST_DEPLOYED=1` 和 `BUGGCRAFT_DEPLOYED_CONFIG` 后，会通过公网检查 HTTPS 页面与管理权限、UDP STUN、双向跨节点房间发现、路由、1 MiB 数据回传、EOF 和关闭清理，以及 SSH 公钥和错误凭据拒绝。它不停止服务器、不修改账号，测试房间会短暂显示在大厅，结束后关闭。
+
+配置文件必须私下保存，不能提交到仓库。顶层 `nodes` 包含两项，每项为 `name`、`web_url`（不带末尾斜杠）、从可信服务器核对的 `tls_sha256`，以及完整 `profile`（`server_host/server_port/server_public_key/token`）。TLS 指纹和 SSH 公钥均固定校验，不接受关闭验证代替身份检查。公网 STUN 成功只说明 UDP 地址探测可达，不能代替不同客户端网络的 P2P 打洞验收。
+
 `test_onboarding_browser.py` 使用真实浏览器完成桌面/窄屏操作、保存配置、后台登录和同页协议检查。安装 `requirements-test.txt` 并执行 `python -m playwright install chromium` 后，完整发现命令会包含此用例；未安装时明确跳过。也可用 `BUGGCRAFT_TEST_BROWSER` 指定浏览器路径，Windows 自动尝试已安装的 Edge。CI 的独立 browser 任务会安装 Chromium 后执行，不能因缺少浏览器跳过。
 
 正式发布仍需核对证书提示、键盘操作，以及 systemd 安装、目录权限、服务器重启和升级后保留原身份。没有运行 systemd 的环境必须注明服务验收未执行，不能仅凭 unit 文件声称通过。
