@@ -9,7 +9,7 @@ Buggcraft 联机节点为启动器提供房间发现、联邦目录、好友与�
 [![Issues](https://img.shields.io/github/issues/vdjango/minecraft-tunnel)](https://github.com/vdjango/minecraft-tunnel/issues)
 [![Stars](https://img.shields.io/github/stars/vdjango/minecraft-tunnel?style=social)](https://github.com/vdjango/minecraft-tunnel)
 
-**[部署节点](#部署节点)** · **[网页管理](#浏览器初始化)** · **[启动器接入](#启动器与-sdk-接入)** · **[报告问题](https://github.com/vdjango/minecraft-tunnel/issues)**
+**[部署节点](#部署节点)** · **[网页管理](#浏览器初始化)** · **[启动器接入](#第三方启动器接入)** · **[报告问题](https://github.com/vdjango/minecraft-tunnel/issues)**
 
 ---
 
@@ -66,9 +66,11 @@ sudo journalctl -u buggcraft-node -f
 - **管理页面**：调整容量、开放方式、邮件服务和联邦关系。
 - **启动器接入**：浏览器内直接阅读流程、语言示例与完整协议。
 
-## 启动器与 SDK 接入
+## 第三方启动器接入
 
-接入协议位于节点网页 `/developers`，也可以直接阅读[协议标准](PROTOCOL_STANDARD.md)。协议页面列出认证、房间、好友、账号路由、传输与错误处理，并提供 C/C++、Java、Python 和 C# 参考示例。接入方负责实现启动器侧连接组件；用户侧不需要填写打洞细节。
+第三方启动器下载独立的 [Buggcraft bridge](https://github.com/vdjango/buggcraft/actions/workflows/bridge.yml)，通过本地进程管道调用 JSON-RPC 2.0。无需安装 Python 或集成 Python SDK；固定公钥校验、P2P 与中转由桥接进程负责。Windows、Linux 和 macOS 分别构建，运行时保留完整发行目录。
+
+接入协议位于节点网页 `/developers`，也可以直接阅读[协议标准](PROTOCOL_STANDARD.md)和[桥接接入说明](https://github.com/vdjango/buggcraft/blob/main/docs/technical/bridge-integration.md)。文档提供 C/C++、Java、Python 和 C# 的进程调用示例。当前桥接 v1 提供节点添加、房间目录、邀请码建房/加入、状态与关闭；好友和网页登录仍属于原生协议能力，尚未开放为桥接方法。
 
 官方桌面端：[Buggcraft 启动器](https://github.com/vdjango/buggcraft)。它使用同一节点协议和连接组件，不要求部署节点的用户改动服务端代码。
 

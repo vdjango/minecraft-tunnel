@@ -81,6 +81,20 @@ class GovernanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.post('/api/federation/block', json=self.action())).status, 401)
         self.assertFalse(self.a.blocked)
 
+    async def test_bridge_guide_uses_portable_program_and_marks_native_only_features(self):
+        response = await self.client.get('/developers')
+        self.assertEqual(response.status, 200)
+        page = await response.text()
+        self.assertIn('actions/workflows/bridge.yml', page)
+        self.assertIn('buggcraft-bridge.exe', page)
+        self.assertIn('ProcessBuilder(bridgePath)', page)
+        self.assertIn('ProcessStartInfo(bridgePath)', page)
+        self.assertIn('当前桥接加入接口需要邀请码', page)
+        self.assertIn('不属于当前 JSON-RPC 方法', page)
+        self.assertNotIn('ProcessBuilder(pythonPath', page)
+        self.assertNotIn('subprocess.Popen(["python"', page)
+        self.assertNotIn('Content-Disposition', response.headers)
+
     async def test_public_bandwidth_api_returns_cached_directional_rates_without_interface_details(self):
         from unittest.mock import Mock
         from tunnel.bandwidth import Bandwidth

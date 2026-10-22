@@ -43,16 +43,18 @@
       <section id="quickstart" class="docs-section">
         <div class="docs-section-heading"><span>02 / QUICK START</span><h2>用 JSON-RPC 启动桥接进程</h2><p>每行发送一个 JSON-RPC 2.0 请求，每个请求对应一行响应。先初始化协议，再添加节点，之后创建或加入房间。</p></div>
         <ol class="docs-steps">
-          <li><strong>启动本地进程</strong><p>开发环境可用 Python 3.11+ 执行 <code>python -m hookup bridge</code>；发布时把桥接组件随启动器一起安装或打包。</p></li>
+          <li><strong>下载并启动桥接程序</strong><p>从 <a href="https://github.com/vdjango/buggcraft/actions/workflows/bridge.yml">Package bridge</a> 下载对应系统的产物，解压后随启动器保留完整目录。通过子进程启动 <code>buggcraft-bridge.exe</code>（Windows）或 <code>buggcraft-bridge</code>（Linux/macOS），重定向输入输出；不需要 Python 环境或语言专用 SDK。</p></li>
           <li><strong>初始化并导入节点</strong><p>调用 <code>bridge.initialize</code>，再用 <code>node.add</code> 导入用户从可信节点取得的接入码。桥接进程负责凭据，不要把凭据写入日志。</p></li>
-          <li><strong>连接房间</strong><p>用 <code>room.list</code> 展示公开房间，或让用户输入邀请码后调用 <code>room.join</code>。加入者可以选择 P2P 优先或仅中继。</p></li>
+          <li><strong>连接房间</strong><p>用 <code>room.list</code> 读取公开目录。当前桥接加入接口需要邀请码：让用户输入后调用 <code>room.join</code>；<code>room.host</code> 创建邀请码房间。加入者可以选择 P2P 优先或仅中继。</p></li>
           <li><strong>启动游戏并清理会话</strong><p>把返回的 <code>127.0.0.1:端口</code> 交给 Minecraft。退出时调用 <code>room.close</code>；进程关闭时会清理剩余会话。</p></li>
         </ol>
-        <div class="docs-code"><span>开发环境命令 · 需安装 Buggcraft bridge 依赖</span><pre><code>PYTHONPATH=buggcraft/src/buggcraft python -m hookup bridge</code></pre></div>
+        <div class="docs-code"><span>启动可执行文件 · 参数不包含任何接入码</span><pre><code>buggcraft-bridge.exe
+# Linux / macOS: ./buggcraft-bridge
+# 构建信息: buggcraft-bridge --version</code></pre></div>
         <div class="docs-code"><span>请求示例 · node.add 与 room.join</span><pre><code>{"jsonrpc":"2.0","id":1,"method":"bridge.initialize","params":{"protocol":1}}
 {"jsonrpc":"2.0","id":2,"method":"node.add","params":{"code":"buggnode1-&lt;用户接入码&gt;"}}
 {"jsonrpc":"2.0","id":3,"method":"room.join","params":{"node":"&lt;返回的节点句柄&gt;","invite":"bugg1-&lt;房间邀请码&gt;","transport":"auto"}}</code></pre></div>
-        <div class="docs-note"><strong>桥接接口的版本边界</strong><p>标准报文采用 JSON-RPC 2.0；方法名、参数、限制和错误码由 Buggcraft 的 v1 profile 定义。该参考实现目前不支持 JSON-RPC batch 请求。发布第三方启动器时，请自行部署节点并用真实客户端验证。</p></div>
+        <div class="docs-note"><strong>桥接接口的版本边界</strong><p>标准报文采用 JSON-RPC 2.0；方法名、参数、限制和错误码由 Buggcraft 的 v1 profile 定义。不支持 batch 或状态通知，可用 <code>session.list</code> 刷新状态。运行时保留完整发行目录，当前产物未提供受信任签名或 Apple 公证。<a href="https://github.com/vdjango/buggcraft/blob/main/docs/technical/bridge-integration.md">查看桥接发行与接入说明</a>。</p></div>
       </section>
 
       <section id="directory-api" class="docs-section">
@@ -62,7 +64,7 @@
           <tr><td><code>node.add</code></td><td>验证并导入接入码，返回进程内使用的不透明节点句柄。</td></tr>
           <tr><td><code>room.list</code></td><td>分页获取公开房间；传入 offset，最多返回 50 项。</td></tr>
           <tr><td><code>session.list</code></td><td>读取本进程活动会话及当前连接状态。</td></tr>
-          <tr><td><code>account_lookup</code></td><td>个人身份可按用户名或账号 ID 查询；匿名凭据没有好友查询权限。</td></tr>
+          <tr><td><code>account_lookup</code>（原生 SSH）</td><td>个人身份可按用户名或账号 ID 查询；不属于当前 JSON-RPC 方法，匿名凭据没有好友查询权限。</td></tr>
         </tbody></table></div>
         <div class="docs-split"><article class="docs-info-card"><h3>限流与错误</h3><p>单行输入上限 8 KiB；错误使用 JSON-RPC 标准错误结构。超时、节点不可达或凭据失效时提示用户，并采用有上限的退避重试。</p></article><article class="docs-info-card"><h3>节点故障</h3><p>其他联邦入口可以继续提供目录。房间归属节点不可用时房主需重建房间；已经建立的 Minecraft TCP 会话不会自动迁移到另一台服务器。</p></article></div>
       </section>
@@ -92,7 +94,7 @@
         <div class="docs-section-heading"><span>06 / CODE EXAMPLES</span><h2>各语言复用同一个接口</h2><p>下列为应用内调用片段；接入码、邀请码和游戏启动函数由你的启动器提供。C/C++ 例子中的 BridgeProcess 是启动器自身的双向进程管道封装，Java 例子使用 Jackson，C# 使用 System.Text.Json。协议请求的格式和顺序相同。</p></div>
         <div class="docs-samples">
           <details class="docs-sample" open><summary><span>Python</span><small>subprocess + JSON</small></summary><pre><code>import json, subprocess
-p = subprocess.Popen(["python", "-m", "hookup", "bridge"], stdin=subprocess.PIPE,
+p = subprocess.Popen([bridge_path], stdin=subprocess.PIPE,
                      stdout=subprocess.PIPE, text=True, encoding="utf-8")
 def rpc(i, method, params):
     p.stdin.write(json.dumps({"jsonrpc":"2.0", "id":i,
@@ -121,7 +123,7 @@ auto node=rpc(bridge,2,"node.add",{{"code",access_code}}).at("node");
 auto room=rpc(bridge,3,"room.join",{{"node",node},{"invite",invite},{"transport","auto"}});
 launch_minecraft(room.at("address").get&lt;std::string&gt;());
 rpc(bridge,4,"room.close",{{"session",room.at("session")}});</code></pre></details>
-          <details class="docs-sample"><summary><span>Java</span><small>ProcessBuilder + Jackson</small></summary><pre><code>var process = new ProcessBuilder(pythonPath, "-m", "hookup", "bridge").start();
+          <details class="docs-sample"><summary><span>Java</span><small>ProcessBuilder + Jackson</small></summary><pre><code>var process = new ProcessBuilder(bridgePath).start();
 var in = new java.io.BufferedWriter(new java.io.OutputStreamWriter(process.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8));
 var out = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8));
 var json = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -140,7 +142,7 @@ var node=rpc.apply("node.add", java.util.Map.of("code",accessCode)).get("node").
 var room=rpc.apply("room.join", java.util.Map.of("node",node, "invite",invite, "transport","auto"));
 launchMinecraft(room.get("address").asText());
 rpc.apply("room.close", java.util.Map.of("session",room.get("session").asText()));</code></pre></details>
-          <details class="docs-sample"><summary><span>C#</span><small>Process + System.Text.Json</small></summary><pre><code>var start = new System.Diagnostics.ProcessStartInfo(pythonPath, "-m hookup bridge") {
+          <details class="docs-sample"><summary><span>C#</span><small>Process + System.Text.Json</small></summary><pre><code>var start = new System.Diagnostics.ProcessStartInfo(bridgePath) {
     RedirectStandardInput=true, RedirectStandardOutput=true, UseShellExecute=false, CreateNoWindow=true };
 using var bridge = System.Diagnostics.Process.Start(start)!;
 async System.Threading.Tasks.Task&lt;System.Text.Json.JsonElement&gt; Rpc(int id, string method, object parameters) {

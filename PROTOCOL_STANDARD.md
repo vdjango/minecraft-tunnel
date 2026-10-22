@@ -68,7 +68,9 @@ SSH 子系统名为 `buggcraft-rooms-v1`，使用 UTF-8 JSON Lines，一行一�
 
 第三方启动器使用独立连接组件，不实现 ICE、打洞、DTLS、SCTP 或 SSH 转发。组件通过 **JSON-RPC 2.0 over stdio** 与启动器通信：一行一个 UTF-8 JSON 请求和响应，版本字段固定为 `"2.0"`；当前不支持 batch 请求；请求上限 8 KiB。标准输入输出只承载协议帧，诊断写标准错误。组件负责节点固定公钥校验、P2P 探测、加密中转回退与回环地址监听。
 
-参考组件位于独立的 [buggcraft 仓库](https://github.com/vdjango/buggcraft)。安装其依赖后，在该仓库根目录启动（节点仓库本身不包含 `hookup`）：
+发行组件位于独立的 [buggcraft 仓库](https://github.com/vdjango/buggcraft)。从 [Package bridge 构建](https://github.com/vdjango/buggcraft/actions/workflows/bridge.yml) 下载对应系统的产物，解压保留完整目录，启动 Windows 的 `buggcraft-bridge.exe` 或 Linux/macOS 的 `buggcraft-bridge`，通过子进程管道通信。接入方无需 Python 或语言专用 SDK；组件不部署在远端节点，也不提供公网 RPC 端口。`--version` 可读取构建提交与平台，`bridge.initialize.result.build` 返回同一构建信息。
+
+开发源码时才需要 Python 3.11+，在启动器仓库安装 `requirements-bridge.txt` 后启动（节点仓库本身不包含 `hookup`）：
 
 ```sh
 # Linux/macOS
@@ -96,7 +98,9 @@ python -m hookup bridge
 
 房间路径按访客分别建立。`transport:"auto"`（默认）尝试 P2P，无法建连时该访客使用中继；`transport:"relay"` 让该访客跳过 P2P。同一个房间可以同时有 P2P 和中继访客。房主也可以在 `room.host` 指定 `transport:"relay"`，此时该房间所有访客使用中继。启动器应允许每位访客选择连接策略，并显示 SDK 返回的实际路径。
 
-除 JSON-RPC 标准错误 `-32700`（JSON 解析）、`-32600`（请求）、`-32601`（方法）和 `-32602`（参数）外，`-32000` 表示节点连接失败，`-32004` 表示句柄不存在，`-32009` 表示活动会话阻止删除，`-32010` 表示资源上限，`-32020`/`-32021` 表示房间启动失败/超时。错误文本不包含凭据。更完整字段、代码和维护的发行包由 `/developers` 指引；当前 Python 进程是接口参考实现，不代表已提供所有平台的签名安装包。
+除 JSON-RPC 标准错误 `-32700`（JSON 解析）、`-32600`（请求）、`-32601`（方法）和 `-32602`（参数）外，`-32000` 表示节点连接失败，`-32004` 表示句柄不存在，`-32009` 表示活动会话阻止删除，`-32010` 表示资源上限，`-32020`/`-32021` 表示房间启动失败/超时。错误文本不包含凭据。更完整字段与发行包由 `/developers` 指引；当前发行包未提供受信任代码签名或 Apple 公证。
+
+当前桥接 v1 不包含好友、网页登录、公开建房设置或按房间 ID 直接加入的方法。`room.host` 创建邀请码房间，`room.join` 需要邀请码。初始化返回方法列表，接入方不能把下方原生协议扩展误当成可直接调用的 JSON-RPC 方法。进程不发送状态事件，使用 `session.list` 读取；关闭 stdin 后清理会话并退出。标准错误应持续读取，避免管道堵塞。
 
 接入序列示例：
 
