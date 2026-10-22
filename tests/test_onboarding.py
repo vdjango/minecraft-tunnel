@@ -78,7 +78,8 @@ class SetupHTTPTests(unittest.IsolatedAsyncioTestCase):
         invalid = [dict(password_confirm='different'), dict(host='https://invalid.test'),
                    dict(password='short', password_confirm='short'), dict(username='管理员'),
                    dict(max_rooms=129), dict(room_capacity=0), dict(bandwidth_mb_s='nan'),
-                   dict(port=18443), dict(name=''), dict(public_join='yes')]
+                   dict(port=18443), dict(port=80), dict(web_port=443),
+                   dict(name=''), dict(public_join='yes')]
         for change in invalid:
             with self.subTest(change=list(change)):
                 response = await self.post(dict(self.data, **change))
@@ -107,11 +108,6 @@ class SetupHTTPTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.post()).status, 410)
         self.assertEqual({p.name:p.read_bytes() for p in self.directory.iterdir()}, before)
         self.assertTrue(self.server.finished.is_set())
-
-    async def test_container_ports_cannot_be_changed_in_browser(self):
-        self.server.locked_ports = True
-        self.assertEqual((await self.post(dict(self.data, port=4000))).status, 400)
-        self.assertFalse((self.directory / 'server.conf').exists())
 
     async def test_simultaneous_initialization_cannot_replace_admin_or_keys(self):
         entered, release = asyncio.Event(), asyncio.Event()

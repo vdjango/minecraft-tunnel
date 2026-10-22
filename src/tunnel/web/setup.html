@@ -9,8 +9,8 @@
 <fieldset><h2>给节点一个名字</h2><p class="intro">这个名字会显示在网页和启动器的节点列表中。</p>
 <label>节点名称<input name="name" required maxlength="80" value="我的联机节点" autocomplete="off"></label>
 <label>服务器域名或公网 IP<input name="host" required maxlength="253" placeholder="node.example.com" autocomplete="off"><small>只填写地址，不带 https:// 或端口。可以使用已有的防护入口域名。</small></label>
-<div class="columns"><label>联机端口<input name="port" type="number" min="1" max="65535" value="3333" required {{PORT_LOCK}}><small>需要放行 TCP 和 UDP。</small></label>
-<label>网页端口<input name="web_port" type="number" min="1" max="65535" value="{{WEB_PORT}}" required {{PORT_LOCK}}><small>需要放行 TCP。</small></label></div>
+<div class="columns"><label>联机端口<input name="port" type="number" min="1024" max="65535" value="3333" required><small>需要放行 TCP 和 UDP，服务账户使用 1024 以上端口。</small></label>
+<label>网页端口<input name="web_port" type="number" min="1024" max="65535" value="{{WEB_PORT}}" required><small>需要放行 TCP，服务账户使用 1024 以上端口。</small></label></div>
 <details><summary>已有独立 TCP 代理入口</summary><p>仅在已经配置 TCP 防护或中转入口时填写；网页脱敏无法隐藏实际连接地址。</p>
 <label>对外联机域名<input name="entry_host" maxlength="253" placeholder="relay.example.com"></label>
 <label>对外联机端口<input name="entry_port" type="number" min="1" max="65535" placeholder="443"></label></details></fieldset>

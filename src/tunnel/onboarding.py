@@ -50,10 +50,9 @@ def setup_tls(directory):
 
 
 class SetupServer:
-    def __init__(self, directory, *, web_port=18443, locked_ports=False):
+    def __init__(self, directory, *, web_port=18443):
         self.directory = Path(directory).resolve()
         self.web_port = web_port
-        self.locked_ports = locked_ports
         self.token = secrets.token_urlsafe(32)
         self.finished = asyncio.Event()
         self.lock = asyncio.Lock()
@@ -80,7 +79,6 @@ class SetupServer:
         text = (ASSETS / 'setup.html').read_text(encoding='utf-8')
         text = text.replace('{{TOKEN}}', html.escape(self.token, quote=True))
         text = text.replace('{{WEB_PORT}}', str(self.web_port))
-        text = text.replace('{{PORT_LOCK}}', 'readonly' if self.locked_ports else '')
         return web.Response(text=text, content_type='text/html')
 
     async def asset(self, request):
@@ -104,11 +102,9 @@ class SetupServer:
                     raise ValueError()
                 host = data['host'].strip()
                 port, web_port = int(data['port']), int(data['web_port'])
-                if self.locked_ports and (port != 3333 or web_port != self.web_port):
-                    raise ValueError('容器监听端口不能在此修改。')
                 if data['password'] != data['password_confirm']:
                     raise ValueError('两次输入的管理员密码不一致。')
-                if not 1 <= port <= 65535 or not 1 <= web_port <= 65535 or port == web_port:
+                if not 1024 <= port <= 65535 or not 1024 <= web_port <= 65535 or port == web_port:
                     raise ValueError('Invalid listen ports')
                 # Catch existing services before committing a configuration which
                 # would immediately fail to boot. Keep reservations until saved.
@@ -147,8 +143,8 @@ class SetupServer:
                       'bandwidth_mb_s': float(data['bandwidth_mb_s'])})
 
 
-async def first_run(directory, *, host='0.0.0.0', web_port=18443, locked_ports=False):
-    server = SetupServer(directory, web_port=web_port, locked_ports=locked_ports)
+async def first_run(directory, *, host='0.0.0.0', web_port=18443):
+    server = SetupServer(directory, web_port=web_port)
     runner = web.AppRunner(server.app, access_log=None)
     with tempfile.TemporaryDirectory(prefix='buggcraft-setup-') as temporary:
         tls, fingerprint = setup_tls(temporary)

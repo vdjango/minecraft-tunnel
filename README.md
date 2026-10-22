@@ -4,16 +4,16 @@
 
 ## 部署：启动服务，其余在浏览器完成
 
-下载本仓库后，在仓库目录执行。服务器需已安装 Docker Engine 和 Compose 插件：
+下载本仓库后，在仓库目录执行。适用于使用 systemd 的 Linux，需准备 Python 3.11+ 和对应的 venv 包：
 
 ```sh
-docker compose up -d --build
+sudo python3 src/main.py --install-service
 ```
 
-服务会自动安装依赖、后台运行，并在服务器重启后恢复。首次启动，在容器日志中查看专属初始化链接：
+这条命令创建独立依赖环境、专用服务账户和 `buggcraft-node.service`，启动服务并设置开机启动。终端会显示首次初始化链接；也可查看服务日志：
 
 ```sh
-docker compose logs node
+sudo journalctl -u buggcraft-node -n 30 --no-pager
 ```
 
 打开日志中的 `https://服务器地址:18443/?token=…`，把 `SERVER_IP` 换成服务器实际地址。链接只能由部署者保管。浏览器向导会依次设置：
@@ -26,11 +26,20 @@ docker compose logs node
 
 首次使用自签名证书，浏览器会提示证书未受信任。初始化证书 SHA256 指纹会与链接一起写到启动日志，请通过可信服务器控制台核对；配置完成后节点会使用独立的长期证书。公开使用前应配置域名和可信证书，见 [部署说明](docs/deployment.md)。
 
-放行 **TCP 18443**（网页）、**TCP 3333**（联机/中转）及 **UDP 3333**（P2P 地址探测）。不会占用网站常用的 80/443 端口；已有服务占用了上述端口时，先参考部署说明调整映射。容器内端口固定，向导中不能修改。
+放行 **TCP 18443**（网页）、**TCP 3333**（联机/中转）及 **UDP 3333**（P2P 地址探测）。不修改已有网站、反向代理和防火墙。联机端口可在向导中修改；首次网页端口冲突时，安装命令增加 `--web-port 18444`。
 
-数据保存在 Docker 卷 `node-data`，升级和重建容器不会删除它。不要执行 `docker compose down -v`，这会删除节点身份和账号数据。
+代码和依赖在 `/opt/buggcraft-node`，节点数据在 `/var/lib/buggcraft-node`。日常管理：
 
-### 不使用容器
+```sh
+sudo systemctl status buggcraft-node
+sudo systemctl restart buggcraft-node
+sudo systemctl stop buggcraft-node
+sudo systemctl start buggcraft-node
+```
+
+更新源码后再次执行安装命令，保留节点数据。安装细节、备份和更新失败恢复见 [部署说明](docs/deployment.md)。
+
+### 本地前台运行
 
 安装 Python 3.11+ 和 `requirements.txt` 的依赖后，只需一条启动命令：
 
@@ -38,7 +47,7 @@ docker compose logs node
 python src/main.py
 ```
 
-首次同样进入 HTTPS 向导，默认数据目录 `config/node`。后续使用同一命令即可。可通过 `--directory config/another-node --web-port 18444` 启动另一节点；显式 `--config PATH` 只运行已有配置，不会初始化。唯一应用入口是 `src/main.py`，没有额外初始化脚本。原生部署的依赖安装和 systemd 配置见 [部署说明](docs/deployment.md)。
+首次同样进入 HTTPS 向导，默认数据目录 `config/node`。后续使用同一命令即可。可通过 `--directory config/another-node --web-port 18444` 启动另一节点；显式 `--config PATH` 只运行已有配置，不会初始化。唯一应用入口是 `src/main.py`，安装和初始化都由此进入。
 
 ## 联邦与连接方式
 
@@ -57,7 +66,7 @@ python src/main.py
 |`src/main.py`|唯一应用入口，首次向导与正常运行|
 |`src/tunnel/onboarding.py`、`provisioning.py`|服务内部的首次配置与密钥生成|
 |`src/tunnel/`|中转、联邦、账号、网页与 P2P 信令|
-|`compose.yaml`、`Dockerfile`|容器服务、持久化、重启策略和依赖安装|
+|`src/tunnel/service.py`|systemd 服务安装、独立依赖环境和更新回滚|
 |`tests/`|断言实际行为的 unittest 用例，无需预先部署节点|
 
 ```sh

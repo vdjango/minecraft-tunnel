@@ -12,6 +12,8 @@ CI 在 Windows 和 Linux 上执行同一命令。失败通过实际异常、断�
 |---|---|
 |`test_onboarding.py`|真实 HTTPS 向导、缺失/错误口令、跨站拒绝、无效配置、端口占用、密码哈希、容量持久化、并发/重复提交拒绝、写盘失败清理重试、向导自动切换节点、重启不重新初始化|
 |`test_node_startup.py`|配置/公钥/证书一致、拒绝覆盖密钥、非法地址端口、代理入口、缺配置退出、实际 HTTPS 和 SSH 启动与关闭释放端口|
+|`test_service_installation.py`|无第三方依赖的安装入口、独立环境命令、只复制运行文件、依赖失败保持旧版本、拒绝覆盖其他服务、版本切换与启动失败回滚（链接相关用例在 Linux 执行）|
+|`test_systemd_service.py`|隔离 Linux 主机上的实际服务安装、HTTPS 初始化、非 root 数据权限、开机启动配置、systemctl 重启、二次安装保留身份|
 |`test_relay_security.py`|错误 token/角色/房间密钥、公钥不匹配、禁止 shell/exec/SFTP、目录越权、任意转发、超长帧、失效凭据|
 |`test_capacity.py`|人数计数、并发准入、跨房间预算、容量调整、游戏人数与过期、真实双向转发字节|
 |`test_heartbeat.py`|多节点发现、SSH 配置隔离、部分节点失败后继续同步|
@@ -40,4 +42,6 @@ python -X utf8 -m unittest -v tests.test_peer_transport tests.test_bridge_protoc
 
 `test_onboarding_browser.py` 使用真实浏览器完成桌面/窄屏操作、保存配置、后台登录和同页协议检查。安装 `requirements-test.txt` 并执行 `python -m playwright install chromium` 后，完整发现命令会包含此用例；未安装时明确跳过。也可用 `BUGGCRAFT_TEST_BROWSER` 指定浏览器路径，Windows 自动尝试已安装的 Edge。CI 的独立 browser 任务会安装 Chromium 后执行，不能因缺少浏览器跳过。
 
-正式发布仍需核对证书提示、键盘操作，以及容器构建、卷权限、服务器重启和升级后保留原身份。没有 Docker 引擎的环境必须注明未执行，不能仅凭配置文件声称通过。
+正式发布仍需核对证书提示、键盘操作，以及 systemd 安装、目录权限、服务器重启和升级后保留原身份。没有运行 systemd 的环境必须注明服务验收未执行，不能仅凭 unit 文件声称通过。
+
+`test_systemd_service.py` 默认跳过，只有设置 `BUGGCRAFT_TEST_SYSTEMD=1` 才会操作系统服务，并拒绝使用已有节点数据。CI 独立 systemd 任务在一次性 Ubuntu 主机上以 root 执行它；不要在已有节点的服务器上开启。此用例验证重启服务，不等于实际重启整台服务器。

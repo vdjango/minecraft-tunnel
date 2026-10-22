@@ -7,17 +7,14 @@ import asyncio
 import configparser
 import json
 import logging
-import os
 from pathlib import Path
 import signal
 import ssl
 
-import asyncssh
-
-from tunnel.relay import RelayServer
-
-
 async def run(config_path):
+    import asyncssh
+    from tunnel.relay import RelayServer
+
     config = configparser.ConfigParser(interpolation=None)
     if not config.read(config_path, encoding="utf-8"):
         raise SystemExit("Relay configuration file missing")
@@ -91,6 +88,7 @@ async def run(config_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Run one Buggcraft federation relay node")
+    parser.add_argument("--install-service", action="store_true", help="Install or update the native systemd service")
     parser.add_argument("--config", help="Run an existing configuration (never initialize it)")
     parser.add_argument("--directory", default="config/node", help="Persistent node data directory")
     parser.add_argument("--web-port", type=int, default=18443, help="First setup HTTPS port")
@@ -102,6 +100,15 @@ def main():
     try:
         if not 1 <= args.web_port <= 65535:
             parser.error("--web-port must be between 1 and 65535")
+        if args.install_service:
+            if args.config or args.directory != 'config/node' or args.setup_host != '0.0.0.0':
+                parser.error("--install-service uses its own data directory and bind address")
+            from tunnel.service import install
+            try:
+                install(web_port=args.web_port)
+            except (OSError, RuntimeError) as error:
+                raise SystemExit(str(error)) from None
+            return
         asyncio.run(serve(args))
     except KeyboardInterrupt:
         pass
@@ -116,8 +123,7 @@ async def serve(args):
         if not config_path.exists():
             from tunnel.onboarding import first_run
             config_path = await first_run(args.directory, host=args.setup_host,
-                                         web_port=args.web_port,
-                                         locked_ports=os.environ.get('BUGGCRAFT_FIXED_PORTS') == '1')
+                                         web_port=args.web_port)
     await run(config_path)
 
 
