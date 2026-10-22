@@ -11,7 +11,9 @@ SERVICE = 'buggcraft-node'
 MARKER = '# Managed by Buggcraft main --install-service\n'
 
 
-def unit_file(root, web_port):
+def unit_file(root, web_port, *, packaged=False):
+    entry = (f'{root}/current/buggcraft-node' if packaged else
+             f'{root}/current/.venv/bin/python -u {root}/current/src/main.py')
     return MARKER + f'''[Unit]
 Description=Buggcraft federation node
 After=network-online.target
@@ -22,7 +24,7 @@ Type=simple
 User={SERVICE}
 Group={SERVICE}
 WorkingDirectory={root}/current
-ExecStart={root}/current/.venv/bin/python -u {root}/current/src/main.py --directory /var/lib/{SERVICE} --web-port {web_port}
+ExecStart={entry} --directory /var/lib/{SERVICE} --web-port {web_port}
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20
@@ -66,7 +68,21 @@ def prepare_release(source, root):
                            '(Ubuntu/Debian: sudo apt install python3-venv), then retry.') from None
     command([release / '.venv/bin/python', '-m', 'pip', 'install', '--disable-pip-version-check',
              '-r', release / 'requirements.txt'])
-    command([release / '.venv/bin/python', '-c', 'import asyncssh, aiohttp, cryptography'])
+    command([release / '.venv/bin/python', '-c', 'import asyncssh, aiohttp, cryptography, psutil'])
+    return release
+
+
+def prepare_packaged_release(source, root):
+    """Copy the self-contained runtime, excluding all mutable node data."""
+    if not (source / 'buggcraft-node').is_file() or not (source / '_internal').is_dir():
+        raise RuntimeError('Incomplete portable package: keep the executable and _internal together.')
+    releases = root / 'releases'
+    releases.mkdir(parents=True, exist_ok=True)
+    release = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S-'), dir=releases))
+    release.chmod(0o755)
+    shutil.copy2(source / 'buggcraft-node', release / 'buggcraft-node')
+    shutil.copytree(source / '_internal', release / '_internal')
+    command([release / 'buggcraft-node', '--help'], stdout=subprocess.DEVNULL)
     return release
 
 
@@ -88,7 +104,7 @@ def ensure_account():
         raise RuntimeError('Existing buggcraft-node user must have its own buggcraft-node group.')
 
 
-def activate(root, release, unit, web_port):
+def activate(root, release, unit, web_port, *, packaged=False):
     """Switch only after dependencies are ready; restore the former unit on failure."""
     current = root / 'current'
     if current.exists() and not current.is_symlink():
@@ -106,7 +122,7 @@ def activate(root, release, unit, web_port):
         temporary.symlink_to(release, target_is_directory=True)
         temporary.replace(current)
         staged_unit = unit.with_name(unit.name + '.new')
-        staged_unit.write_text(unit_file(root, web_port), encoding='utf-8')
+        staged_unit.write_text(unit_file(root, web_port, packaged=packaged), encoding='utf-8')
         staged_unit.replace(unit)
         command(['systemctl', 'daemon-reload'])
         command(['systemctl', 'enable', SERVICE])
@@ -149,7 +165,8 @@ def install(*, web_port=18443):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('Another node installation is in progress.') from None
-        source = Path(__file__).resolve().parents[2]
+        packaged = bool(getattr(sys, 'frozen', False))
+        source = Path(sys.executable).resolve().parent if packaged else Path(__file__).resolve().parents[2]
         root = Path('/opt/buggcraft-node')
         unit = Path('/etc/systemd/system/buggcraft-node.service')
         if unit.exists() and not unit.read_bytes().startswith(MARKER.encode()):
@@ -157,10 +174,10 @@ def install(*, web_port=18443):
         ensure_account()
         old_mask = os.umask(0o022)
         try:
-            release = prepare_release(source, root)
+            release = prepare_packaged_release(source, root) if packaged else prepare_release(source, root)
         finally:
             os.umask(old_mask)
-        activate(root, release, unit, web_port)
+        activate(root, release, unit, web_port, packaged=packaged)
     print('Service installed. Data: /var/lib/buggcraft-node', flush=True)
     print('Open the private First setup HTTPS link below; replace SERVER_IP with the server address.', flush=True)
     subprocess.run(['journalctl', '-u', SERVICE, '-n', '15', '--no-pager', '-o', 'cat'], check=False)

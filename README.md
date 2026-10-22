@@ -1,84 +1,105 @@
 # Buggcraft 联机节点
 
-自建联机节点服务端，提供房间目录、无主联邦、账号与好友路由、P2P 信令和加密 SSH 中转。启动器通过连接组件接入，不需要自己实现打洞。
+### 为朋友的世界，提供一个可信的连接入口。
 
-## 部署：启动服务，其余在浏览器完成
+Buggcraft 联机节点为启动器提供房间发现、联邦目录、好友与账号路由、P2P 信令，以及必要时的加密游戏流量中继。玩家可以自建节点；其他启动器也可以按公开协议接入。
 
-下载本仓库后，在仓库目录执行。适用于使用 systemd 的 Linux，需准备 Python 3.11+ 和对应的 venv 包：
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-6554c0.svg)](LICENSE)
+[![Server tests](https://img.shields.io/github/actions/workflow/status/vdjango/minecraft-tunnel/server-tests.yml?label=tests)](https://github.com/vdjango/minecraft-tunnel/actions/workflows/server-tests.yml)
+[![Issues](https://img.shields.io/github/issues/vdjango/minecraft-tunnel)](https://github.com/vdjango/minecraft-tunnel/issues)
+[![Stars](https://img.shields.io/github/stars/vdjango/minecraft-tunnel?style=social)](https://github.com/vdjango/minecraft-tunnel)
+
+**[部署节点](#部署节点)** · **[网页管理](#浏览器初始化)** · **[启动器接入](#启动器与-sdk-接入)** · **[报告问题](https://github.com/vdjango/minecraft-tunnel/issues)**
+
+---
+
+## 节点能做什么
+
+| 房间与中继 | 联邦节点 | 账号与好友 |
+|---|---|---|
+| 发布大厅房间，处理邀请码和加入请求。 | 节点通过签名公告交换房间目录与存活状态。 | 账号密码保留在注册节点；可选择同步加密身份副本。 |
+| 连接组件优先尝试 P2P；不可用时由房间归属节点中继。 | 不需要中心主节点；任意可信节点都可作为入口。 | 好友申请需要双方同意，用户名可跨联邦查询。 |
+| 同一个房间允许 P2P 与中继连接并存。 | 管理员互换邀请后才建立信任关系。 | 匿名玩家可以联机，但没有好友功能。 |
+
+节点负责发现、信令和中继。P2P 受双方 NAT、防火墙与 UDP 条件影响，并非所有网络都能打通。入口切换不能迁移已经建立的游戏 TCP 会话；房间归属节点失效时，玩家需要重新连接。联邦不合并带宽，也不替代外部 DDoS 防护。
+
+## 部署节点
+
+推荐下载包含运行环境的 [发行包](https://github.com/vdjango/minecraft-tunnel/releases)。无需安装 Python 或手工下载依赖；解压后保留完整目录。
+
+| 系统 | 运行方式 | 持久化数据 |
+|---|---|---|
+| Windows x64 | 双击 `buggcraft-node.exe`，首次自动打开浏览器向导。 | 程序旁的 `data/` |
+| Linux x64（glibc） | 执行 `./buggcraft-node` 前台运行。 | 程序旁的 `data/` |
+| Linux x64 + systemd | 执行 `sudo ./buggcraft-node --install-service` 安装开机启动服务。 | `/var/lib/buggcraft-node` |
+
+Windows 包是前台应用，关闭控制台会停止节点；目前不注册 Windows 服务。支持目标为 Windows 10/11、Windows Server 2016+ x64；其他版本和不同 Linux 发行版需实际验证。发行包未签名时，Windows 可能阻止运行，当前签名及验收要求见[发布前检查](docs/release-readiness.md)。
+
+首次设置都在浏览器完成，见[部署与维护说明](docs/deployment.md)。也可从源码安装 Linux systemd 服务，需要 Python 3.11+、`systemctl`、`useradd` 和与 Python 版本匹配的 venv 包：
 
 ```sh
+git clone https://github.com/vdjango/minecraft-tunnel.git
+cd minecraft-tunnel
 sudo python3 src/main.py --install-service
 ```
 
-这条命令创建独立依赖环境、专用服务账户和 `buggcraft-node.service`，启动服务并设置开机启动。终端会显示首次初始化链接；也可查看服务日志：
+安装器创建专用服务账户，启用 `buggcraft-node.service` 并设为开机启动。发行包安装直接复制内置运行环境；源码安装才创建 Python 环境并安装依赖。服务启动后，不需要再运行初始化脚本。
 
-```sh
-sudo journalctl -u buggcraft-node -n 30 --no-pager
-```
-
-打开日志中的 `https://服务器地址:18443/?token=…`，把 `SERVER_IP` 换成服务器实际地址。链接只能由部署者保管。浏览器向导会依次设置：
-
-1. 节点名称、域名或公网地址，已有 TCP 防护入口也在这里填写。
-2. 管理员用户名和密码。
-3. 房间数、每房间人数、上传带宽预算，以及是否允许匿名接入。
-
-保存后自动开始提供服务，无需再执行初始化命令或重启。之后访问 `https://服务器地址:18443/` 查看公开状态，`/admin` 管理节点。网页的“启动器接入”入口提供同一页面内的流程、各语言示例和完整协议。
-
-首次使用自签名证书，浏览器会提示证书未受信任。初始化证书 SHA256 指纹会与链接一起写到启动日志，请通过可信服务器控制台核对；配置完成后节点会使用独立的长期证书。公开使用前应配置域名和可信证书，见 [部署说明](docs/deployment.md)。
-
-放行 **TCP 18443**（网页）、**TCP 3333**（联机/中转）及 **UDP 3333**（P2P 地址探测）。不修改已有网站、反向代理和防火墙。联机端口可在向导中修改；首次网页端口冲突时，安装命令增加 `--web-port 18444`。
-
-代码和依赖在 `/opt/buggcraft-node`，节点数据在 `/var/lib/buggcraft-node`。日常管理：
+常用管理命令：
 
 ```sh
 sudo systemctl status buggcraft-node
 sudo systemctl restart buggcraft-node
-sudo systemctl stop buggcraft-node
-sudo systemctl start buggcraft-node
+sudo journalctl -u buggcraft-node -f
 ```
 
-更新源码后再次执行安装命令，保留节点数据。安装细节、备份和更新失败恢复见 [部署说明](docs/deployment.md)。
+## 浏览器初始化
 
-### 本地前台运行
+启动日志会显示一次性 HTTPS 链接和临时证书 SHA256 指纹。通过可信的服务器终端获取链接，核对指纹后在浏览器打开；不要转发含有 token 的链接。
 
-安装 Python 3.11+ 和 `requirements.txt` 的依赖后，只需一条启动命令：
+三步向导设置节点地址与名称、管理员账号、房间容量及匿名接入策略。保存后，同一服务自动切换到正常节点页面。首次证书尚未被公开 CA 信任；面向公众提供服务前，请配置域名和可信 HTTPS 证书。
 
-```sh
-python src/main.py
-```
+- **节点首页**：公开查看节点状态、房间和在线人数。
+- **实时带宽**：查看服务器入口、出口速率，切换 MB/s 或 Mbps。
+- **管理页面**：调整容量、开放方式、邮件服务和联邦关系。
+- **启动器接入**：浏览器内直接阅读流程、语言示例与完整协议。
 
-首次同样进入 HTTPS 向导，默认数据目录 `config/node`。后续使用同一命令即可。可通过 `--directory config/another-node --web-port 18444` 启动另一节点；显式 `--config PATH` 只运行已有配置，不会初始化。唯一应用入口是 `src/main.py`，安装和初始化都由此进入。
+## 启动器与 SDK 接入
 
-## 联邦与连接方式
+接入协议位于节点网页 `/developers`，也可以直接阅读[协议标准](PROTOCOL_STANDARD.md)。协议页面列出认证、房间、好友、账号路由、传输与错误处理，并提供 C/C++、Java、Python 和 C# 参考示例。接入方负责实现启动器侧连接组件；用户侧不需要填写打洞细节。
 
-节点平等，不依赖主节点。成员使用签名公告和共享入网密钥互相验证，约每 2 秒同步，公告约 10 秒过期。联邦最多 32 个互信运营节点。管理员在网页“连接网络”导出或导入邀请；邀请仅给可信运营者，不能发给玩家。隔离可疑成员仅影响本节点，没有任意成员可以调用的全网踢除接口。
+官方桌面端：[Buggcraft 启动器](https://github.com/vdjango/buggcraft)。它使用同一节点协议和连接组件，不要求部署节点的用户改动服务端代码。
 
-玩家可以从任意联邦入口查找房间，房间由创建它的节点负责中转。每位访客独立选择先 P2P、失败后中继的 `auto`，或仅中继的 `relay`，同房间可以混合。P2P 会向对端提供网络候选地址。STUN 仅做地址发现，不能保证穿透所有 NAT。
+## 端口与数据
 
-入口故障时可以使用备用节点，但现有 TCP 和游戏会话不能迁移；归属节点失效需要重新建房和加入。联邦不聚合带宽，也不能替代 DDoS 防护。网页不展示监听地址，不等于网络层隐藏源站。
+默认放行 **TCP 18443**（网页）、**TCP 3333**（目录与游戏中继）和 **UDP 3333**（P2P 地址探测）。网页端口冲突时可在安装时设置 `--web-port 18444`；联机端口可在向导里设置。安装器不改已有网站或防火墙。
 
-账号密码不进入联邦目录；公开用户名、签名路由和好友事件在网络中传播，用户可选择加密身份副本数量。密码在客户端解锁身份包。全部副本和恢复文件均丢失时无法重新登录。匿名接入可联机，没有好友功能。
+Linux 服务的程序发布在 `/opt/buggcraft-node`，节点数据在 `/var/lib/buggcraft-node`；前台发行包的数据保存在程序旁的 `data/`。更新服务时再次执行对应安装命令；安装器准备好新版本后再切换。备份和恢复说明见[部署文档](docs/deployment.md)。
 
-## 代码和测试
+## 开发与测试
 
-|位置|职责|
-|---|---|
-|`src/main.py`|唯一应用入口，首次向导与正常运行|
-|`src/tunnel/onboarding.py`、`provisioning.py`|服务内部的首次配置与密钥生成|
-|`src/tunnel/`|中转、联邦、账号、网页与 P2P 信令|
-|`src/tunnel/service.py`|systemd 服务安装、独立依赖环境和更新回滚|
-|`tests/`|断言实际行为的 unittest 用例，无需预先部署节点|
+`src/main.py` 是唯一应用入口；`src/tunnel/` 包含中继、联邦、向导和网页实现；`tests/` 为服务端 unittest。运行完整服务端套件：
 
 ```sh
 python -X utf8 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-用例覆盖真实 HTTPS 初始化与服务切换、SSH 传输、容量、联邦心跳、账号副本、权限、邮件、STUN 和 P2P 信令。完整客户端 ICE 测试在启动器仓库；本机直连不代表跨公网 NAT 验收，见 [测试说明](tests/README.md) 和 [发布前检查](docs/release-readiness.md)。
+测试覆盖真实 HTTPS 初始化、管理员和节点密钥、服务端口、SSH 中继、账号副本、联邦公告、STUN 与信令。systemd 安装验收由一次性 Linux CI 环境执行。跨公网 NAT 打洞、多个真实运营商网络及完整 Minecraft 负载仍需在对应网络环境验收；单元测试不会替代这些测试。详见[测试说明](tests/README.md)和[发布前检查](docs/release-readiness.md)。
 
-### 部署者责任提示
+## 许可与节点运营
 
-自行部署节点并向公众提供中转服务，可能需要取得相应电信业务许可。节点部署者应根据所在地法律和实际服务方式，自行确认适用的许可、备案及数据保护等要求，并自行承担节点运营的合规责任。使用本项目不代表已取得相关许可，项目提供方不代替部署者办理或判断上述事项。
+源代码采用 [GNU AGPL v3](LICENSE) 发布。[社区贡献与资源赞助](COMMUNITY_LICENSE.md)说明参与方式，不增加许可限制。
 
-- [部署与维护](docs/deployment.md)
-- [协议标准](PROTOCOL_STANDARD.md)
-- [LICENSE](LICENSE) 与 [社区许可说明](COMMUNITY_LICENSE.md)
+自行部署节点并向公众提供中转服务，可能需要取得相应电信业务许可。节点部署者应根据所在地法律和实际服务方式，自行确认适用的许可、备案及数据保护等要求，并自行承担节点运营的合规责任。
+
+## 参与和赞助
+
+欢迎提交问题、修复代码、改进文档，或帮助验证不同系统和网络。
+
+**不接受资金赞助，接受服务器、云主机、带宽、流量额度、对象存储及 CDN 等云上资源赞助。** 有意提供资源可先在 [Issues](https://github.com/vdjango/minecraft-tunnel/issues) 沟通用途和限制，请勿公开任何密码或密钥。详见[资源赞助政策](COMMUNITY_LICENSE.md#赞助政策)。
+
+发行包构建和验收见[打包说明](docs/packaging.md)。
+
+---
+
+<p align="center"><sub>开源实现，节点由社区运行，是否加入由你决定。</sub></p>

@@ -1,16 +1,41 @@
 # 节点部署与维护
 
+## 下载后直接运行
+
+从 [Releases](https://github.com/vdjango/minecraft-tunnel/releases) 下载与系统匹配的发行包，解压到有写入权限的目录。程序、`_internal/` 和许可文件需要放在一起；无需安装 Python，也不在首次启动时下载依赖。Windows 推荐从这里开始。
+
+| 系统 | 包名 | 首次运行 |
+|---|---|---|
+| Windows x64 | `buggcraft-node-windows-x64.zip` | 解压后双击 `buggcraft-node.exe` |
+| Linux x64（glibc） | `buggcraft-node-linux-x64.tar.gz` | 解压后执行 `./buggcraft-node` |
+
+Windows 首次启动会自动打开本机的 HTTPS 向导。若从远程电脑配置，使用控制台给出的完整链接，将 `SERVER_IP` 替换为服务器地址；核对证书指纹后继续。完成后同一进程启动正式节点，下次运行读取原配置。`--no-browser` 可禁用自动打开浏览器。
+
+前台发行包始终把数据保存在程序旁的 `data/`，不受启动时工作目录影响；`--directory PATH` 可指定其他位置。日志在 `data/logs/node.log`，单文件上限 5 MiB，保留 3 份旧日志；启动时记录系统、架构、Python 版本，异常记录堆栈。初始化 token 只输出到控制台，不主动写入日志，日志分享前仍应检查是否含敏感信息。
+
+Windows 包目前以前台应用运行，关闭控制台或注销会停止节点，不注册 Windows 服务。默认端口仍需放行 Windows 防火墙及云安全组。程序不能写入目录时会启动失败，请放在可写目录。未签名构建可能被系统拦截，这类拦截发生在程序启动前，程序无法记录日志；不要关闭防护或把哈希校验当成可信签名。
+
+Windows 支持目标为 Windows 10/11、Windows Server 2016+ x64，发行前需在对应干净系统验证。Linux 包支持 glibc，不能直接用于 Alpine/musl；兼容范围以实际验收为准。构建和验收方法见[打包说明](packaging.md)。
+
 ## 安装系统服务
 
-使用 systemd 的 Linux，下载源码后在仓库目录执行：
+使用 systemd 的 Linux，解压发行包后执行：
+
+```sh
+sudo ./buggcraft-node --install-service
+```
+
+发行包内置运行环境，安装不需要 Python、venv 或 pip，也不访问依赖下载站。仍需要 `systemctl`、`useradd` 和 root 权限；安装后使用下方相同的 systemctl 命令管理。更新时从新的发行包目录再次执行同一条命令，数据保留。
+
+也可下载源码后在仓库目录执行：
 
 ```sh
 sudo python3 src/main.py --install-service
 ```
 
-前提是 Python 3.11+、对应的 venv 包、systemctl 和 useradd 可用。例如 Debian 12 / Ubuntu 24.04 可先通过系统包管理器安装 `python3` 和 `python3-venv`；旧系统需先准备符合版本要求的 Python。安装入口仅使用标准库，不要求提前安装应用依赖。
+源码安装前提是 Python 3.11+、对应的 venv 包、systemctl 和 useradd 可用。例如 Debian 12 / Ubuntu 24.04 可先通过系统包管理器安装 `python3` 和 `python3-venv`；旧系统需先准备符合版本要求的 Python。源码安装入口仅使用标准库，不要求提前安装应用依赖。
 
-安装命令创建无登录权限的 `buggcraft-node` 用户、在 `/opt/buggcraft-node/releases` 准备独立代码和依赖环境，随后注册并启动 `buggcraft-node.service`，设置开机启动。应用入口仍是 `src/main.py`。只复制服务端源码、协议和依赖清单，不复制开发目录里的配置、测试和凭据。
+两种安装方式都创建无登录权限的 `buggcraft-node` 用户、在 `/opt/buggcraft-node/releases` 准备独立程序，随后注册并启动 `buggcraft-node.service`，设置开机启动。发行包的可执行文件由唯一入口 `src/main.py` 构建。发行包安装只复制程序及 `_internal/`；源码安装只复制服务端源码、协议和依赖清单，都不复制开发目录里的配置、测试和凭据。
 
 首次启动会显示初始化链接，也可用 `sudo journalctl -u buggcraft-node -n 30 --no-pager` 获取链接和证书指纹。不要分享日志里的 token；初始化完成后链接失效，未完成时每次服务重启会更换 token。
 
@@ -36,6 +61,8 @@ sudo journalctl -u buggcraft-node -f
 sudo python3 src/main.py --install-service --web-port 18444
 ```
 
+发行包对应命令为 `sudo ./buggcraft-node --install-service --web-port 18444`。
+
 在向导中设置可用的联机端口。专用服务账户使用 1024–65535 范围；需要对外使用 443 时应配置独立代理入口。初始化后监听端口以数据目录中的 `server.conf` 为准，安装参数不会覆盖已有配置。
 
 默认安装器管理一个节点。额外节点可使用独立 systemd unit 调用同一 `main.py`，指定不同数据目录和首次网页端口；每个节点的联机端口也必须不同。不要让两个进程同时打开同一份数据。
@@ -52,6 +79,14 @@ sudo python3 src/main.py --install-service --web-port 18444
 - **节点设置**：调整名称、开放策略、容量和带宽预算。单位 MB/s，Mbps 需除以 8。默认保留 35% 空闲，每位中转访客预算 0.128 MB/s，另计 15% 开销；预算不是峰值实测。
 - **邮件服务**：配置 SMTP、确认验证码收件后，在“节点设置”开放注册。
 - **节点列表**：查看成员状态。本地隔离及恢复需要目标确认、原因和管理员密码，不是全网踢除。
+
+## 网页实时带宽
+
+首页公开显示服务器入口（接收）和出口（发送）速率，可切换 MB/s、Mbps，浏览器记住单位。1 MB/s = 8 Mbps，MB 使用十进制，即 1,000,000 字节。
+
+服务每秒读取操作系统网卡字节计数，按两次采样的实际间隔计算速率；页面每 5 秒读取缓存，不因访问人数增加采样次数。统计所有非回环网卡，包含同一服务器上的网站、下载等服务；虚拟网卡、网桥、隧道可能重复统计同一份流量，因此不是公网计费带宽，也不是线路容量或测速结果。同机部署多个节点时，它们显示同一主机的流量。
+
+首次采样、系统计数不可读或采样过期时显示「—」，不会把未知流量当成零。公开接口 `GET /api/status` 的 `bandwidth` 提供接收与发送的字节/秒速率、采样间隔和状态，不公开网卡名称或地址。原有「当前转发速率」仍单独统计游戏中转载荷。
 
 ## 本地前台运行
 
@@ -83,11 +118,13 @@ python -m venv .venv
 
 ## 数据、备份与升级
 
+前台发行包：关闭节点后备份完整 `data/`。将新版本解压到新目录，把原 `data/` 移入新目录再启动；不要只复制可执行文件，也不要同时运行两份同身份的数据。以下 `/var/lib/buggcraft-node` 路径仅指 Linux 服务安装。
+
 节点私钥、联邦密钥、管理员哈希、SMTP 配置和账号副本须私下保存。`admin-credentials.txt` 包含随机生成的玩家接入密码和证书指纹；自选管理员密码不明文写入。普通玩家领取个人接入码，不要向玩家发送原始 profile、联邦邀请或整个配置目录。
 
 执行 `sudo systemctl stop buggcraft-node` 后备份完整 `/var/lib/buggcraft-node`，并保护备份权限；仅备份 `server.conf` 无法恢复身份。确认可恢复后再升级。重启会断开游戏连接，应安排维护时间。
 
-更新源码后再次运行 `sudo python3 src/main.py --install-service`。先在新的 release 目录准备依赖，成功后停止旧进程、切换 `current` 并启动；准备失败不会停止旧服务。切换或启动命令失败会恢复原链接和 unit，原先运行的服务会尝试重新启动。安装器不修改节点数据，也不负责回滚数据格式变更。切换后的运行期故障仍需查看日志处理，不能将进程已启动当作完整健康验收。
+更新时再次运行发行包的 `sudo ./buggcraft-node --install-service`，或源码安装的 `sudo python3 src/main.py --install-service`。安装器先在新的 release 目录准备好内置运行环境或依赖，再停止旧进程、切换 `current` 并启动；准备失败不会停止旧服务。切换或启动命令失败会恢复原链接和 unit，原先运行的服务会尝试重新启动。安装器不修改节点数据，也不负责回滚数据格式变更。切换后的运行期故障仍需查看日志处理，不能将进程已启动当作完整健康验收。
 
 旧 release 保留在 `/opt/buggcraft-node/releases`，失败的准备目录也保留便于排查，不自动清理。恢复时保留原 SSH 私钥、联邦密钥和账号数据，不能同时运行原节点与克隆。卸载服务可执行 `sudo systemctl disable --now buggcraft-node` 后移除 unit 并 `daemon-reload`；保留数据目录以备恢复。
 

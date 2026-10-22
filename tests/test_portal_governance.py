@@ -81,6 +81,27 @@ class GovernanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.post('/api/federation/block', json=self.action())).status, 401)
         self.assertFalse(self.a.blocked)
 
+    async def test_public_bandwidth_api_returns_cached_directional_rates_without_interface_details(self):
+        from unittest.mock import Mock
+        from tunnel.bandwidth import Bandwidth
+        self.portal.bandwidth.task.cancel()
+        await asyncio.gather(self.portal.bandwidth.task, return_exceptions=True)
+        reader = Mock(side_effect=[{'private-interface':(100, 200)},
+                                  {'private-interface':(2_000_100, 6_000_200)}])
+        meter = Bandwidth(reader, Mock(side_effect=[10, 12, 12, 12]))
+        self.portal.bandwidth = meter
+        await meter.sample()
+        await meter.sample()
+        for _ in range(2):
+            response = await self.client.get('/api/status')
+            self.assertEqual(response.status, 200)
+            sample = (await response.json())['bandwidth']
+            self.assertEqual(sample['status'], 'ready')
+            self.assertEqual(sample['rx_bytes_per_second'], 1_000_000)
+            self.assertEqual(sample['tx_bytes_per_second'], 3_000_000)
+            self.assertNotIn('private-interface', json.dumps(sample))
+        self.assertEqual(reader.call_count, 2)
+
     async def test_csrf_confirmation_reason_password_and_target_are_required(self):
         headers = await self.login()
         before = self.path.read_bytes()

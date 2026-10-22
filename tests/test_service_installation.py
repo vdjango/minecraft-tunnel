@@ -48,7 +48,7 @@ class ServiceInstallationTests(unittest.TestCase):
             self.assertEqual(calls[0], [sys.executable, '-m', 'venv', str(release / '.venv')])
             self.assertEqual(calls[1][0], str(release / '.venv/bin/python'))
             self.assertEqual(calls[1][-1], str(release / 'requirements.txt'))
-            self.assertIn('import asyncssh, aiohttp, cryptography', calls[2])
+            self.assertIn('import asyncssh, aiohttp, cryptography, psutil', calls[2])
 
     def test_dependency_failure_does_not_switch_running_release(self):
         with tempfile.TemporaryDirectory() as folder:

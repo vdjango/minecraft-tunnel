@@ -14,6 +14,8 @@ python -X utf8 -m unittest discover -s tests -p "test_*.py" -v
 
 不要将历史测试总数当作当前代码的结果。发布记录应保存提交号、Python/操作系统版本、执行命令、用例结果和未执行项；日志中不得包含接入码或用户秘密。
 
+发行包在 Windows 与 Linux 分别原生构建，使用 [发行包验收](packaging.md) 测试真实可执行文件。Windows 干净机器、签名和 SmartScreen 状态不能用 CI 或源代码单测替代。
+
 ## 需要实际验收的环境
 
 - 两台处于不同网络的客户端验证 P2P，记录候选类型和实际路径；覆盖家庭 NAT、双重/对称 NAT、IPv6、UDP 阻断和中继回退。本机直连不能代替公网打洞验证。

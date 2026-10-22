@@ -16,6 +16,8 @@ CI 在 Windows 和 Linux 上执行同一命令。失败通过实际异常、断�
 |`test_systemd_service.py`|隔离 Linux 主机上的实际服务安装、HTTPS 初始化、非 root 数据权限、开机启动配置、systemctl 重启、二次安装保留身份|
 |`test_relay_security.py`|错误 token/角色/房间密钥、公钥不匹配、禁止 shell/exec/SFTP、目录越权、任意转发、超长帧、失效凭据|
 |`test_capacity.py`|人数计数、并发准入、跨房间预算、容量调整、游戏人数与过期、真实双向转发字节|
+|`test_bandwidth.py`|服务器收发速率、实际采样间隔、多网卡合计、回环排除、计数重置/网卡增删、读取失败恢复、过期和后台任务清理|
+|`test_portable_package.py`|对真实 PyInstaller 发行目录的首次向导、HTTPS 指纹、协议页、管理员登录、SSH 监听、重启保留身份、无关工作目录和故障系统日志（需设置 `BUGGCRAFT_TEST_PACKAGE`）|
 |`test_heartbeat.py`|多节点发现、SSH 配置隔离、部分节点失败后继续同步|
 |`test_federation_integrity.py`|签名/网络证明篡改、心跳重放、过期/未来公告、大小限制、房间归属冲突、本地隔离范围|
 |`test_account_replication.py`|四节点实际 SSH 同步、目录与密文分离、副本数、非副本路由、故障补位、撤回副本、策略篡改、重名及重启恢复|

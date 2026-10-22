@@ -39,6 +39,17 @@
       <article><span class="metric-label">游戏内玩家</span><strong id="game-players">—</strong><small id="game-coverage">由房主上报，未知不计为零</small></article>
       <article><span class="metric-label">连续运行</span><strong id="uptime">—</strong><small>每 5 秒自动刷新</small></article>
     </section>
+    <section class="bandwidth-panel" aria-labelledby="bandwidth-title">
+      <div class="section-heading"><div><span class="eyebrow muted">SERVER TRAFFIC</span><h2 id="bandwidth-title">服务器实时带宽</h2></div>
+        <div class="bandwidth-units" role="group" aria-label="带宽显示单位"><button type="button" data-bandwidth-unit="MB/s" aria-pressed="true">MB/s</button><button type="button" data-bandwidth-unit="Mbps" aria-pressed="false">Mbps</button></div>
+      </div>
+      <div class="bandwidth-rates">
+        <article><span class="metric-label">↓ 入口 · 接收</span><div><strong id="bandwidth-rx">—</strong><span class="bandwidth-unit">MB/s</span></div></article>
+        <article><span class="metric-label">↑ 出口 · 发送</span><div><strong id="bandwidth-tx">—</strong><span class="bandwidth-unit">MB/s</span></div></article>
+      </div>
+      <p id="bandwidth-status" role="status">正在采样服务器流量…</p>
+      <p class="bandwidth-note">非回环网卡合计，包含同机网站等服务；虚拟网卡可能重复计数，不等于公网计费带宽。每秒采样，页面每 5 秒刷新。1 MB/s = 8 Mbps，MB 按 1,000,000 字节计算。</p>
+    </section>
     <section class="capacity-summary" aria-label="节点带宽与接纳能力">
       <div><span class="metric-label">带宽预算 · MB/s</span><strong id="capacity-bandwidth">未配置</strong></div>
       <div><span class="metric-label">建议中转访客上限</span><strong id="capacity-visitors">待设置带宽</strong></div>

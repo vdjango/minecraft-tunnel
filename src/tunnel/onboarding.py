@@ -143,7 +143,7 @@ class SetupServer:
                       'bandwidth_mb_s': float(data['bandwidth_mb_s'])})
 
 
-async def first_run(directory, *, host='0.0.0.0', web_port=18443):
+async def first_run(directory, *, host='0.0.0.0', web_port=18443, open_browser=False):
     server = SetupServer(directory, web_port=web_port)
     runner = web.AppRunner(server.app, access_log=None)
     with tempfile.TemporaryDirectory(prefix='buggcraft-setup-') as temporary:
@@ -157,6 +157,13 @@ async def first_run(directory, *, host='0.0.0.0', web_port=18443):
             print(f'\nFirst setup: https://{display_host}:{web_port}/?token={server.token}', flush=True)
             print(f'Setup certificate SHA256: {fingerprint}', flush=True)
             print('Replace SERVER_IP with your server address. Keep this setup link private.\n', flush=True)
+            if open_browser:
+                import webbrowser
+                try:
+                    await asyncio.to_thread(webbrowser.open,
+                        f'https://127.0.0.1:{web_port}/?token={server.token}')
+                except Exception:
+                    logging.getLogger(__name__).warning('Cannot open browser; use the setup link above.')
             await server.finished.wait()
         finally:
             await runner.cleanup()

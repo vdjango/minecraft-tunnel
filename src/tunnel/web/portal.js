@@ -2,6 +2,28 @@
 const $ = id => document.getElementById(id);
 let csrf = '', publicJoin = false, refreshing = false;
 let accountCSRF = '';
+let bandwidthUnit = 'MB/s', bandwidthSample = null;
+try { if (localStorage.getItem('bandwidth-unit') === 'Mbps') bandwidthUnit = 'Mbps'; } catch {}
+function renderBandwidth() {
+  const ready = bandwidthSample?.status === 'ready';
+  const factor = bandwidthUnit === 'Mbps' ? 8 / 1e6 : 1 / 1e6;
+  for (const [id, key] of [['bandwidth-rx', 'rx_bytes_per_second'], ['bandwidth-tx', 'tx_bytes_per_second']]) {
+    const value = bandwidthSample?.[key];
+    $(id).textContent = ready && Number.isFinite(value) && value >= 0 ? (value * factor).toFixed(3) : '—';
+  }
+  for (const label of document.querySelectorAll('.bandwidth-unit')) label.textContent = bandwidthUnit;
+  for (const button of document.querySelectorAll('[data-bandwidth-unit]'))
+    button.setAttribute('aria-pressed', String(button.dataset.bandwidthUnit === bandwidthUnit));
+  const messages = {ready:'服务器网卡实时收发速率', warming_up:'正在采样服务器流量…',
+    unavailable:'服务器流量暂不可读', stale:'采样已过期，等待恢复', disconnected:'连接中断，等待刷新'};
+  $('bandwidth-status').textContent = messages[bandwidthSample?.status] || messages.warming_up;
+}
+for (const button of document.querySelectorAll('[data-bandwidth-unit]')) button.onclick = () => {
+  bandwidthUnit = button.dataset.bandwidthUnit;
+  try { localStorage.setItem('bandwidth-unit', bandwidthUnit); } catch {}
+  renderBandwidth();
+};
+renderBandwidth();
 async function api(path, data) {
   const response = await fetch(path, {method:data === undefined ? 'GET' : 'POST',
     headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'X-Account-CSRF':accountCSRF},
@@ -23,6 +45,8 @@ async function refresh() {
   refreshing = true;
   try {
     const s = await api('/api/status');
+    bandwidthSample = s.bandwidth;
+    renderBandwidth();
     document.title = s.name + ' · Buggcraft';
     $('node-name').textContent = s.name;
     $('node-name-heading').textContent = s.name;
@@ -63,6 +87,8 @@ async function refresh() {
       card.append(symbol, content, dot); return card;
     }));
   } catch {
+    bandwidthSample = {status:'disconnected'};
+    renderBandwidth();
     $('health').textContent = '状态暂不可用 · 等待恢复';
     document.body.classList.add('offline');
   } finally { refreshing = false; }

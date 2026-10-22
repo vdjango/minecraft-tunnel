@@ -7,9 +7,13 @@ import asyncio
 import configparser
 import json
 import logging
+import os
 from pathlib import Path
 import signal
 import ssl
+import sys
+
+from tunnel.runtime import configure_logging, default_directory, frozen
 
 async def run(config_path):
     import asyncssh
@@ -90,18 +94,16 @@ def main():
     parser = argparse.ArgumentParser(description="Run one Buggcraft federation relay node")
     parser.add_argument("--install-service", action="store_true", help="Install or update the native systemd service")
     parser.add_argument("--config", help="Run an existing configuration (never initialize it)")
-    parser.add_argument("--directory", default="config/node", help="Persistent node data directory")
+    parser.add_argument("--directory", default=str(default_directory()), help="Persistent node data directory")
     parser.add_argument("--web-port", type=int, default=18443, help="First setup HTTPS port")
     parser.add_argument("--setup-host", default="0.0.0.0", help="First setup bind address")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open the local setup browser")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    logging.getLogger("asyncssh").setLevel(logging.WARNING)
     try:
         if not 1 <= args.web_port <= 65535:
             parser.error("--web-port must be between 1 and 65535")
         if args.install_service:
-            if args.config or args.directory != 'config/node' or args.setup_host != '0.0.0.0':
+            if args.config or args.directory != str(default_directory()) or args.setup_host != '0.0.0.0':
                 parser.error("--install-service uses its own data directory and bind address")
             from tunnel.service import install
             try:
@@ -109,9 +111,17 @@ def main():
             except (OSError, RuntimeError) as error:
                 raise SystemExit(str(error)) from None
             return
+        directory = Path(args.config).resolve().parent if args.config else Path(args.directory)
+        log_path = configure_logging(directory)
+        print(f'Log file: {log_path}', flush=True)
         asyncio.run(serve(args))
     except KeyboardInterrupt:
         pass
+    except Exception:
+        logging.exception('Node stopped unexpectedly')
+        if frozen() and sys.platform == 'win32' and sys.stdin and sys.stdin.isatty():
+            input('Startup failed. See data/logs/node.log. Press Enter to close...')
+        raise SystemExit(1) from None
 
 
 async def serve(args):
@@ -122,8 +132,11 @@ async def serve(args):
         config_path = Path(args.directory).resolve() / 'server.conf'
         if not config_path.exists():
             from tunnel.onboarding import first_run
+            options = {}
+            if frozen() and sys.platform == 'win32' and not getattr(args, 'no_browser', False):
+                options['open_browser'] = True
             config_path = await first_run(args.directory, host=args.setup_host,
-                                         web_port=args.web_port)
+                                         web_port=args.web_port, **options)
     await run(config_path)
 
 

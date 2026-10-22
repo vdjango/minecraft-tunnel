@@ -1,6 +1,8 @@
 .minecraft
 venv
 .venv/
+.build/
+build/
 # Generated node directories contain credentials and persistent account data.
 /config/*/
 *.pyc

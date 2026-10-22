@@ -20,7 +20,7 @@ entry = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(entry)
 
 try:
-    from playwright.async_api import async_playwright
+    from playwright.async_api import async_playwright, expect
 except ImportError:
     async_playwright = None
 
@@ -115,6 +115,44 @@ class OnboardingBrowserTests(unittest.IsolatedAsyncioTestCase):
                     await page.locator('#admin-password').fill('browser secret password')
                     await page.locator('#login-form button[type="submit"]').click()
                     await page.locator('#admin-panel').wait_for(state='visible')
+                    # Exercise the rendered bandwidth controls with deterministic
+                    # RX/TX samples, while all other status fields come from the node.
+                    bandwidth_status = 'ready'
+                    async def status_sample(route):
+                        response = await route.fetch()
+                        body = await response.json()
+                        body['bandwidth'] = dict(status=bandwidth_status,
+                            rx_bytes_per_second=1_250_000, tx_bytes_per_second=2_500_000)
+                        await route.fulfill(response=response, json=body)
+                    await page.route('**/api/status', status_sample)
+                    await page.goto(url + '/')
+                    await expect(page.locator('#bandwidth-rx')).to_have_text('1.250')
+                    self.assertEqual(await page.locator('#bandwidth-tx').inner_text(), '2.500')
+                    await page.get_by_role('button', name='Mbps', exact=True).click()
+                    self.assertEqual(await page.locator('#bandwidth-rx').inner_text(), '10.000')
+                    self.assertEqual(await page.locator('#bandwidth-tx').inner_text(), '20.000')
+                    self.assertEqual(await page.get_by_role('button', name='Mbps', exact=True).get_attribute('aria-pressed'), 'true')
+                    await page.screenshot(path=str(artifacts / 'bandwidth-mobile.png'), full_page=True)
+                    self.assertLessEqual(await page.evaluate('document.documentElement.scrollWidth'), 390)
+                    await page.reload()
+                    await expect(page.locator('#bandwidth-rx')).to_have_text('10.000')
+                    await page.set_viewport_size({'width':1280, 'height':1000})
+                    await page.screenshot(path=str(artifacts / 'bandwidth-desktop.png'), full_page=True)
+                    bandwidth_status = 'unavailable'
+                    await page.reload()
+                    await page.locator('#bandwidth-status').filter(has_text='服务器流量暂不可读').wait_for()
+                    self.assertEqual(await page.locator('#bandwidth-rx').inner_text(), '—')
+                    bandwidth_status = 'ready'
+                    await page.reload()
+                    await expect(page.locator('#bandwidth-rx')).to_have_text('10.000')
+                    # Losing access to browser storage must not break unit changes.
+                    await page.evaluate("Object.defineProperty(window, 'localStorage', {get() {throw new Error('storage blocked')}})")
+                    await page.get_by_role('button', name='MB/s', exact=True).click()
+                    self.assertEqual(await page.locator('#bandwidth-rx').inner_text(), '1.250')
+                    await page.route('**/api/status', lambda route: route.abort())
+                    await page.evaluate('refresh()')
+                    self.assertEqual(await page.locator('#bandwidth-status').inner_text(), '连接中断，等待刷新')
+                    self.assertEqual(await page.locator('#bandwidth-tx').inner_text(), '—')
                     await page.goto(url + '/developers')
                     self.assertIn('节点管理的权限与流程', await page.locator('#protocol').inner_text())
                     self.assertEqual(await page.locator('a[href="/protocol.md"]').count(), 0)

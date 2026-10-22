@@ -15,6 +15,7 @@ import time
 from aiohttp import web
 
 from .federation import identity
+from .bandwidth import Bandwidth
 
 
 def password_hash(password, salt=None):
@@ -67,6 +68,8 @@ class Portal:
         self.relay.draining = self.state.get('draining', False)
         self.relay.capacity.configure(self.state.get('capacity', self.relay.capacity.policy))
         self.app = web.Application(client_max_size=8192, middlewares=[self.guard])
+        self.bandwidth = Bandwidth()
+        self.app.cleanup_ctx.append(self.bandwidth.lifecycle)
         self.app.add_routes([
             web.get('/', self.page), web.get('/admin', self.admin_page),
             web.get('/admin/{section:nodes|network|settings|users|history|mail}', self.admin_page),
@@ -141,7 +144,8 @@ class Portal:
 
     async def developers_page(self, request):
         page = (Path(__file__).with_name('web') / 'developers.html').read_text(encoding='utf-8')
-        protocol = (Path(__file__).resolve().parents[2] / 'PROTOCOL_STANDARD.md').read_text(encoding='utf-8')
+        from .runtime import protocol_path
+        protocol = protocol_path().read_text(encoding='utf-8')
         return web.Response(text=page.replace('{{PROTOCOL}}', html.escape(protocol)), content_type='text/html')
 
     async def launcher_example(self, request):
@@ -165,6 +169,7 @@ class Portal:
                 'game_counts_unknown': sum(r.game_players is None or time.monotonic() - r.game_reported >= 15
                                            for r in self.relay.rooms.values() if r.available),
                 'capacity': self.relay.capacity.snapshot(),
+                'bandwidth': self.bandwidth.snapshot(),
                 'streams': len(self.relay.streams), 'max_rooms': self.relay.max_rooms,
                 'max_connections': self.relay.max_connections, 'network_nodes': len(live),
                 'public_join': self.state.get('public_join', False),
