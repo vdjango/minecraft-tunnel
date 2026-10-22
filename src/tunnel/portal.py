@@ -160,15 +160,20 @@ class Portal:
 
     def public_state(self):
         live = self.federation.live()
+        now = time.monotonic()
+        available = [room for room in self.relay.rooms.values() if room.available]
+        reported = [room for room in available if room.game_players is not None
+                    and now - room.game_reported < 15]
         return {'name': self.federation.name, 'id': self.federation.id,
                 'status': 'maintenance' if self.relay.draining else 'online',
                 'uptime_seconds': int(time.monotonic() - self.started),
                 'rooms': len(self.relay.rooms), 'connections': len(self.relay.peers),
                 'players': sum(self.relay.capacity.members(k) for k in self.relay.rooms),
-                'game_players': sum(r.game_players or 0 for r in self.relay.rooms.values()
-                                    if r.available and time.monotonic() - r.game_reported < 15),
-                'game_counts_unknown': sum(r.game_players is None or time.monotonic() - r.game_reported >= 15
-                                           for r in self.relay.rooms.values() if r.available),
+                'players_include_p2p': True,
+                'game_players': sum(room.game_players for room in reported),
+                'game_counts_reported': len(reported),
+                'game_counts_unknown': len(available) - len(reported),
+                'game_players_source': 'host_minecraft_status',
                 'capacity': self.relay.capacity.snapshot(),
                 'bandwidth': self.bandwidth.snapshot(),
                 'streams': len(self.relay.streams), 'max_rooms': self.relay.max_rooms,

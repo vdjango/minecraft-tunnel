@@ -60,8 +60,10 @@ async function refresh() {
     $('health').textContent = s.status === 'online' ? '节点在线 · 连接已就绪' : '节点维护中 · 暂停新房间';
     document.body.classList.remove('offline');
     for (const k of ['rooms','players']) $(k).textContent = s[k];
-    $('game-players').textContent = s.game_counts_unknown ? s.game_players + '+' : s.game_players;
-    $('game-coverage').textContent = s.game_counts_unknown ? s.game_counts_unknown + ' 个房间游戏人数暂不可读' : '房主上报，已排除启动器聊天角色';
+    $('game-players').textContent = s.game_counts_unknown ?
+      (s.game_counts_reported === 0 ? '—' : s.game_players + '+') : s.game_players;
+    $('game-coverage').textContent = s.game_counts_unknown ?
+      s.game_counts_unknown + ' 个房间人数未知或已过期' : '房主从游戏读取，包含 P2P 与中继玩家';
     const c = s.capacity;
     $('capacity-bandwidth').textContent = c.bandwidth_mb_s ? c.bandwidth_mb_s.toFixed(3) : '未配置';
     $('capacity-visitors').textContent = c.recommended_visitors === null ? '待设置带宽' : c.admitted_visitors + ' / ' + c.recommended_visitors + ' 人';
